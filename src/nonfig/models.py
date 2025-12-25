@@ -36,20 +36,19 @@ class MakeableModel[R](BaseModel):
 
     Subclasses should override _make_impl().
     """
-    config_cls = type(self)
-    cls_dict = config_cls.__dict__
-
-    # Ultra-fast path: if class is guaranteed to have no nested fields,
-    # we can bypass everything.
-    if cls_dict.get("_is_always_leaf"):
-      return self._make_impl()
-
     # Optimized access to private metadata to bypass Pydantic overhead
     private = cast("dict[str, Any]", self.__pydantic_private__)
     assert private is not None  # noqa: S101
 
     # Initialize metadata if not already done (once per instance)
     if not private["_make_fields"]:
+      config_cls = type(self)
+      # If class is guaranteed to have no nested fields, we can bypass calculation
+      if config_cls.__dict__.get("_is_always_leaf"):
+        # Set a sentinel to avoid repeating this check
+        private["_make_fields"] = [("_", False)]
+        return self._make_impl()
+
       from nonfig.generation import calculate_make_fields
 
       fields, has_nested = calculate_make_fields(self)

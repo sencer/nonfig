@@ -175,7 +175,9 @@ def _create_class_config[T](
   config_cls._is_always_leaf = is_leaf
 
   # Add the _make_impl method
-  config_cls._make_impl = _create_class_make_impl(cls, is_leaf=is_leaf)
+  config_cls._make_impl = _create_class_make_impl(
+    cls, is_leaf=is_leaf, maybe_nested=maybe_nested
+  )
 
   return cast("type[MakeableModel[T]]", config_cls)
 
@@ -288,7 +290,11 @@ def _is_nested_type(value: Any) -> bool:
   )
 
 
-def _create_class_make_impl[T](cls: type[T], is_leaf: bool = False) -> Callable[[MakeableModel[T]], T]:
+def _create_class_make_impl[T](
+  cls: type[T],
+  is_leaf: bool = False,
+  maybe_nested: set[str] | None = None,
+) -> Callable[[MakeableModel[T]], T]:
   """Create the _make_impl() method for a class Config."""
   if is_leaf:
 
@@ -298,29 +304,31 @@ def _create_class_make_impl[T](cls: type[T], is_leaf: bool = False) -> Callable[
 
     return _make_impl_leaf
 
-  def _make_impl(self: MakeableModel[T]) -> T:
-    # Optimized instantiation:
-    # 1. Use pre-calculated fields to avoid discovery loop
-    # 2. Use __dict__ to bypass Pydantic's getattr overhead
-    # 3. Bypass loop entirely if no nested fields
+  # Specialized nested implementation to avoid runtime loops
+  nested_names = list(maybe_nested or set())
+
+  def _make_impl_nested(self: MakeableModel[T]) -> T:
     data = self.__dict__
     private = cast("dict[str, Any]", self.__pydantic_private__)
 
+    # If no actual nested values at runtime, use fast path
     if not private["_has_nested"]:
       return cls(**data)
 
-    made_kwargs: dict[str, Any] = {}
-    for name, is_nested in cast("list[tuple[str, bool]]", private["_make_fields"]):
+    # Calculate updates only for nested fields
+    updates: dict[str, Any] = {}
+    for name in nested_names:
       value = data[name]
-      if is_nested:
-        made_kwargs[name] = _recursive_make(value)
-      else:
-        made_kwargs[name] = value
+      made = _recursive_make(value)
+      if made is not value:
+        updates[name] = made
 
-    # Create instance
-    return cls(**made_kwargs)
+    if not updates:
+      return cls(**data)
 
-  return _make_impl
+    return cls(**(data | updates))
+
+  return _make_impl_nested
 
 
 def _configurable_function(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -399,7 +407,9 @@ def _create_function_config(
   config_cls._is_always_leaf = is_leaf
 
   # Add the _make_impl method
-  config_cls._make_impl = _create_function_make_impl(func, is_leaf=is_leaf)
+  config_cls._make_impl = _create_function_make_impl(
+    func, is_leaf=is_leaf, maybe_nested=maybe_nested
+  )
 
   return cast("type[MakeableModel[Callable[..., Any]]]", config_cls)
 
@@ -407,6 +417,7 @@ def _create_function_config(
 def _create_function_make_impl(
   func: Callable[..., Any],
   is_leaf: bool = False,
+  maybe_nested: set[str] | None = None,
 ) -> Callable[[MakeableModel[Any]], BoundFunction[Any]]:
   """Create the _make_impl() method for a function Config."""
   if is_leaf:
@@ -416,29 +427,29 @@ def _create_function_make_impl(
 
     return _make_impl_leaf
 
-  def _make_impl(self: MakeableModel[Any]) -> BoundFunction[Any]:
-    # Optimized instantiation:
-    # 1. Use pre-calculated fields to avoid discovery loop
-    # 2. Use __dict__ to bypass Pydantic's getattr overhead
-    # 3. Bypass loop entirely if no nested fields
+  # Specialized nested implementation to avoid runtime loops
+  nested_names = list(maybe_nested or set())
+
+  def _make_impl_nested(self: MakeableModel[Any]) -> BoundFunction[Any]:
     data = self.__dict__
     private = cast("dict[str, Any]", self.__pydantic_private__)
 
     if not private["_has_nested"]:
       return BoundFunction(func, data)
 
-    made_kwargs: dict[str, Any] = {}
-    for name, is_nested in cast("list[tuple[str, bool]]", private["_make_fields"]):
+    updates: dict[str, Any] = {}
+    for name in nested_names:
       value = data[name]
-      if is_nested:
-        made_kwargs[name] = _recursive_make(value)
-      else:
-        made_kwargs[name] = value
+      made = _recursive_make(value)
+      if made is not value:
+        updates[name] = made
 
-    # Create BoundFunction that exposes hyper params as attributes
-    return BoundFunction(func, made_kwargs)
+    if not updates:
+      return BoundFunction(func, data)
 
-  return _make_impl
+    return BoundFunction(func, data | updates)
+
+  return _make_impl_nested
 
 
 def _recursive_make(value: Any) -> Any:
@@ -448,30 +459,34 @@ def _recursive_make(value: Any) -> Any:
   If value is a MakeableModel, call make() on it.
   If value is a list/dict, recursively process elements.
   """
+  # Fast path for common types
+  v_type = type(value)  # type: ignore[reportUnknownVariableType]
+  if v_type in (int, float, str, bool, type(None)):
+    return value
+
   # Make MakeableModel instances
   if isinstance(value, MakeableModel):
-    return value.make()  # pyright: ignore[reportUnknownVariableType]
+    return value.make()
 
   # Recursively handle sequences (list, tuple, set, etc.)
-  # Preserve the original container type
-  if isinstance(value, list):
-    return [_recursive_make(item) for item in value]  # pyright: ignore[reportUnknownVariableType]
+  if v_type is list:
+    return [
+      _recursive_make(item) for item in cast("list[Any]", value)
+    ]  # type: ignore[reportUnknownVariableType]
 
-  if isinstance(value, tuple):
-    return tuple(_recursive_make(item) for item in value)  # pyright: ignore[reportUnknownVariableType]
+  if v_type is dict:
+    return {
+      k: _recursive_make(v) for k, v in cast("dict[Any, Any]", value).items()
+    }
 
-  if isinstance(value, set):
-    return {_recursive_make(item) for item in value}  # pyright: ignore[reportUnknownVariableType]
+  if v_type is tuple:
+    return tuple(_recursive_make(item) for item in cast("tuple[Any, ...]", value))
 
-  if isinstance(value, frozenset):
-    return frozenset(_recursive_make(item) for item in value)  # pyright: ignore[reportUnknownVariableType]
+  if v_type is set:
+    return {_recursive_make(item) for item in cast("set[Any]", value)}
 
-  # Recursively handle mappings (dict, etc.)
-  if isinstance(value, dict):
-    result_dict: dict[Any, Any] = {}
-    for k, v in value.items():  # pyright: ignore[reportUnknownVariableType]
-      result_dict[k] = _recursive_make(v)
-    return result_dict
+  if v_type is frozenset:
+    return frozenset(_recursive_make(item) for item in cast("frozenset[Any]", value))
 
   return value
 
