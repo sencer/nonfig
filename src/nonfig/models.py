@@ -10,12 +10,27 @@ from pydantic import BaseModel, ConfigDict, PrivateAttr
 
 __all__ = [
   "BoundFunction",
+  "DefaultSentinel",
+  "HyperMarker",
   "MakeableModel",
   "is_makeable_model",
 ]
 
 
-from nonfig.typedefs import DefaultSentinel
+class HyperMarker:
+  """Sentinel class to mark parameters as hyperparameters."""
+
+  __slots__ = ()
+
+
+class DefaultSentinel:
+  """Sentinel to indicate a field should use its type's default Config."""
+
+  __slots__ = ()
+
+  @override
+  def __repr__(self) -> str:
+    return "DEFAULT"
 
 
 class MakeableModel[R](BaseModel):
@@ -165,9 +180,7 @@ def is_nested_type(value: Any) -> bool:
     return any(is_nested_type(item) for item in cast("Sequence[Any]", value))
 
   if isinstance(value, dict):
-    return any(
-      is_nested_type(v) for v in cast("dict[Any, Any]", value).values()
-    )
+    return any(is_nested_type(v) for v in cast("dict[Any, Any]", value).values())
 
   # Check if it's a configurable function (has .Config)
   return bool(callable(value) and hasattr(cast("Any", value), "Config"))
