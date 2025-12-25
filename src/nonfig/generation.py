@@ -470,14 +470,10 @@ def _recursive_make(value: Any) -> Any:
 
   # Recursively handle sequences (list, tuple, set, etc.)
   if v_type is list:
-    return [
-      _recursive_make(item) for item in cast("list[Any]", value)
-    ]  # type: ignore[reportUnknownVariableType]
+    return [_recursive_make(item) for item in cast("list[Any]", value)]  # pyright: ignore
 
   if v_type is dict:
-    return {
-      k: _recursive_make(v) for k, v in cast("dict[Any, Any]", value).items()
-    }
+    return {k: _recursive_make(v) for k, v in cast("dict[Any, Any]", value).items()}
 
   if v_type is tuple:
     return tuple(_recursive_make(item) for item in cast("tuple[Any, ...]", value))
