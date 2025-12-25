@@ -60,13 +60,19 @@ def run_benchmark(iterations: int = 100_000):
     ConfigurableClass(x=10, y=0.5)
   direct_time = (time.perf_counter() - start) / iterations * 1e6
 
-  # Config.make() (New instance each time)
+  # Config.make() (Full Pydantic lifecycle)
   start = time.perf_counter()
   for _ in range(iterations):
     ConfigurableClass.Config(x=10, y=0.5).make()
   make_time = (time.perf_counter() - start) / iterations * 1e6
 
-  # Reused Config object (no re-calculation of fields)
+  # Config.fast_make() (Bypass Pydantic)
+  start = time.perf_counter()
+  for _ in range(iterations):
+    ConfigurableClass.Config.fast_make(x=10, y=0.5)
+  fast_make_time = (time.perf_counter() - start) / iterations * 1e6
+
+  # Reused Config object
   start = time.perf_counter()
   for _ in range(iterations):
     config.make()
@@ -78,17 +84,27 @@ def run_benchmark(iterations: int = 100_000):
     outer_cfg.make()
   nested_time = (time.perf_counter() - start) / iterations * 1e6
 
+  # Nested fast_make()
+  start = time.perf_counter()
+  inner_config = Inner.Config(x=10)
+  for _ in range(iterations):
+    Outer.Config.fast_make(inner=inner_config)
+  nested_fast_time = (time.perf_counter() - start) / iterations * 1e6
+
   print("\nPattern                           Time (μs)")
   print("-" * 43)
   print(f"Raw Class Instantiation           {raw_time:8.3f}μs")
   print(f"Configurable Direct               {direct_time:8.3f}μs")
   print(f"Configurable Config().make()      {make_time:8.3f}μs")
+  print(f"Configurable Config.fast_make()   {fast_make_time:8.3f}μs")
   print(f"Configurable Reused Config        {reused_time:8.3f}μs")
   print(f"Configurable Nested make()        {nested_time:8.3f}μs")
+  print(f"Configurable Nested fast_make()   {nested_fast_time:8.3f}μs")
   print("-" * 43)
 
   overhead = reused_time - raw_time
   print(f"\nOverhead of Reused Config vs Raw: {overhead:8.3f}μs ({reused_time/raw_time:.1f}x)")
+  print(f"Overhead of fast_make() vs Raw:   {fast_make_time-raw_time:8.3f}μs ({fast_make_time/raw_time:.1f}x)")
 
 
 if __name__ == "__main__":
