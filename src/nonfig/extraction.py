@@ -175,7 +175,7 @@ def transform_type_for_nesting(type_ann: Any) -> Any:
   if isinstance(type_ann, type):
     config_cls = getattr(type_ann, "Config", None)
     if isinstance(config_cls, type) and issubclass(config_cls, MakeableModel):
-      return type_ann | config_cls | dict[str, Any]
+      return type_ann | config_cls
 
   return type_ann
 
