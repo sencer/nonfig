@@ -2,11 +2,14 @@
 
 import os
 import time
+from typing import cast, Any
 
 # Disable debug logging for benchmarks
 os.environ["LOGURU_LEVEL"] = "WARNING"
 
-from nonfig import Hyper, configurable
+from dataclasses import dataclass
+from nonfig import DEFAULT, configurable
+from nonfig.typedefs import Hyper
 
 
 class RawClass:
@@ -16,55 +19,77 @@ class RawClass:
 
 
 @configurable
+@dataclass
 class ConfigurableClass:
-  def __init__(self, x: Hyper[int] = 10, y: Hyper[float] = 0.5):
-    self.x = x
-    self.y = y
+  x: Hyper[int] = 10
+  y: Hyper[float] = 0.5
 
 
-def benchmark():
-  iterations = 100000
-  print(f"Running benchmarks with {iterations:,} iterations...\n")
+@configurable
+@dataclass
+class Inner:
+  x: int = 1
 
-  # 1. Raw class instantiation (baseline)
+
+@configurable
+@dataclass
+class Outer:
+  inner: Hyper[Inner] = DEFAULT
+
+
+def run_benchmark(iterations: int = 100_000):
+  print(f"Running benchmarks with {iterations:,} iterations...")
+
+  # Pre-create configs
+  config = ConfigurableClass.Config(x=10, y=0.5)
+  outer_cfg = Outer.Config(inner=Inner.Config(x=10))
+
+  print(f"ConfigurableClass is leaf: {getattr(ConfigurableClass.Config, '_is_always_leaf', False)}")
+  print(f"Outer is leaf: {getattr(Outer.Config, '_is_always_leaf', False)}")
+  print(f"Inner is leaf: {getattr(Inner.Config, '_is_always_leaf', False)}")
+
+  # Raw instantiation
   start = time.perf_counter()
   for _ in range(iterations):
-    _ = RawClass(x=50, y=0.75)
-  raw_us = (time.perf_counter() - start) / iterations * 1_000_000
+    RawClass(x=10, y=0.5)
+  raw_time = (time.perf_counter() - start) / iterations * 1e6
 
-  # 2. Configurable class direct instantiation
+  # Configurable direct
   start = time.perf_counter()
   for _ in range(iterations):
-    _ = ConfigurableClass(x=50, y=0.75)
-  direct_us = (time.perf_counter() - start) / iterations * 1_000_000
+    ConfigurableClass(x=10, y=0.5)
+  direct_time = (time.perf_counter() - start) / iterations * 1e6
 
-  # 3. Configurable class via Config().make()
-  # This includes config creation and the make() call
+  # Config.make() (New instance each time)
   start = time.perf_counter()
   for _ in range(iterations):
-    _ = ConfigurableClass.Config(x=50, y=0.75).make()
-  make_us = (time.perf_counter() - start) / iterations * 1_000_000
+    ConfigurableClass.Config(x=10, y=0.5).make()
+  make_time = (time.perf_counter() - start) / iterations * 1e6
 
-  # 4. Configurable class via cached make()
-  config = ConfigurableClass.Config(x=50, y=0.75)
+  # Reused Config object (no re-calculation of fields)
   start = time.perf_counter()
   for _ in range(iterations):
-    _ = config.make()
-  cached_make_us = (time.perf_counter() - start) / iterations * 1_000_000
+    config.make()
+  reused_time = (time.perf_counter() - start) / iterations * 1e6
 
-  print(f"{'Pattern':<30} {'Time (μs)':>12}")
+  # Nested make() (metadata reused)
+  start = time.perf_counter()
+  for _ in range(iterations):
+    outer_cfg.make()
+  nested_time = (time.perf_counter() - start) / iterations * 1e6
+
+  print("\nPattern                           Time (μs)")
   print("-" * 43)
-  print(f"{'Raw Class Instantiation':<30} {raw_us:>11.3f}μs")
-  print(f"{'Configurable Direct':<30} {direct_us:>11.3f}μs")
-  print(f"{'Configurable Config().make()':<30} {make_us:>11.3f}μs")
-  print(f"{'Configurable Cached make()':<30} {cached_make_us:>11.3f}μs")
+  print(f"Raw Class Instantiation           {raw_time:8.3f}μs")
+  print(f"Configurable Direct               {direct_time:8.3f}μs")
+  print(f"Configurable Config().make()      {make_time:8.3f}μs")
+  print(f"Configurable Reused Config        {reused_time:8.3f}μs")
+  print(f"Configurable Nested make()        {nested_time:8.3f}μs")
   print("-" * 43)
 
-  overhead = make_us - raw_us
-  print(
-    f"\nOverhead of Config().make() vs Raw: {overhead:.3f}μs ({(make_us / raw_us):.1f}x)"
-  )
+  overhead = reused_time - raw_time
+  print(f"\nOverhead of Reused Config vs Raw: {overhead:8.3f}μs ({reused_time/raw_time:.1f}x)")
 
 
 if __name__ == "__main__":
-  benchmark()
+  run_benchmark()
