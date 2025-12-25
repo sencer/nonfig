@@ -204,10 +204,10 @@ class TestLruCacheBehavior:
 
 
 class TestInstanceCaching:
-  """Test that make() caches instances in the base class."""
+  """Test that make() returns fresh instances (no caching)."""
 
-  def test_function_make_returns_same_instance(self) -> None:
-    """Calling make() twice should return the same BoundFunction."""
+  def test_function_make_returns_new_instance(self) -> None:
+    """Calling make() twice should return new instances."""
 
     @configurable
     def cached_func(x: Hyper[int] = 1) -> int:
@@ -217,10 +217,10 @@ class TestInstanceCaching:
     result1 = config.make()
     result2 = config.make()
 
-    assert result1 is result2
+    assert result1 is not result2
 
-  def test_class_make_returns_same_instance(self) -> None:
-    """Calling make() twice should return the same class instance."""
+  def test_class_make_returns_new_instance(self) -> None:
+    """Calling make() twice should return new class instances."""
 
     @configurable
     class CachedClass:
@@ -231,7 +231,7 @@ class TestInstanceCaching:
     result1 = config.make()
     result2 = config.make()
 
-    assert result1 is result2
+    assert result1 is not result2
 
   def test_different_configs_have_different_instances(self) -> None:
     """Different config instances should produce different made instances."""

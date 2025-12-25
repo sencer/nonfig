@@ -5,7 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable
 import inspect
 import threading
-from typing import TYPE_CHECKING, Any, overload
+from typing import (
+  TYPE_CHECKING,
+  Any,
+  cast,
+  overload,
+)
 
 from pydantic import create_model
 from pydantic_core import PydanticUndefined
@@ -13,7 +18,6 @@ from pydantic_core import PydanticUndefined
 from nonfig.extraction import (
   extract_class_params,
   extract_function_hyper_params,
-  get_public_fields,
 )
 from nonfig.models import BoundFunction, MakeableModel
 
@@ -140,8 +144,7 @@ def _configurable_class[T](cls: type[T]) -> type[T]:
 
 
 def _create_class_config[T](
-  cls: type[T],
-  params: dict[str, tuple[Any, FieldInfo]],
+  cls: type[T], params: dict[str, tuple[Any, FieldInfo]]
 ) -> type[MakeableModel[T]]:
   """Create a Config class for a target class."""
   # Check for reserved Pydantic field names
@@ -152,32 +155,167 @@ def _create_class_config[T](
       )
 
   # Create the model dynamically - pyright can't infer the type here
-  config_cls: type[MakeableModel[T]] = create_model(  # pyright: ignore[reportUnknownVariableType]
-    f"{cls.__name__}Config",
-    __base__=MakeableModel[cls],  # type: ignore[valid-type]
-    **params,  # type: ignore[arg-type]
+  config_cls = cast(
+    "Any",
+    create_model(
+      f"{cls.__name__}Config",
+      __base__=MakeableModel[cls],  # type: ignore[valid-type]
+      **params,  # type: ignore[arg-type]
+    ),
   )
 
   # Propagate docstring
   if cls.__doc__:
     config_cls.__doc__ = f"Configuration for {cls.__name__}.\n\n{cls.__doc__}"
 
-  # Add the _make_impl method (base class handles caching in make())
-  config_cls._make_impl = _create_class_make_impl(cls)  # type: ignore[method-assign]
+  # Pre-calculate which fields could be nested
+  maybe_nested = calculate_class_make_fields(config_cls)
+  is_leaf = not maybe_nested
+  config_cls._maybe_nested_fields = maybe_nested
+  config_cls._is_always_leaf = is_leaf
 
-  return config_cls  # pyright: ignore[reportUnknownVariableType]
+  # Add the _make_impl method
+  config_cls._make_impl = _create_class_make_impl(cls, is_leaf=is_leaf)
+
+  return cast("type[MakeableModel[T]]", config_cls)
 
 
-def _create_class_make_impl[T](cls: type[T]) -> Callable[[MakeableModel[T]], T]:
+def calculate_class_make_fields(
+  config_cls: type[MakeableModel[Any]],
+) -> set[str]:
+  """Identify fields that COULD be nested based on type hints.
+
+  This is called once per Config class at decoration time.
+  """
+  maybe_nested: set[str] = set()
+  for name, field in config_cls.model_fields.items():
+    if name.startswith("_"):
+      continue
+
+    # Check if the type hint suggests it could be a Config object
+    if _could_be_nested_type(field.annotation):
+      maybe_nested.add(name)
+
+  return maybe_nested
+
+
+def calculate_make_fields(
+  model: MakeableModel[Any],
+) -> tuple[list[tuple[str, bool]], bool]:
+  """Calculate which fields need recursive make() based on actual values.
+
+  Uses class-level 'maybe_nested' hint to avoid checking every field.
+  """
+  fields: list[tuple[str, bool]] = []
+  has_nested = False
+  data = model.__dict__
+  config_cls = type(model)
+
+  # Get hint from class if available, otherwise check all fields
+  # Accessing via __dict__ to avoid descriptor overhead if any
+  maybe_nested = config_cls.__dict__.get("_maybe_nested_fields")
+
+  if maybe_nested is not None:
+    # Optimized path: only check fields that COULD be nested
+    for name in config_cls.model_fields:
+      if name.startswith("_"):
+        continue
+
+      if name in maybe_nested:
+        is_nested = _is_nested_type(data.get(name))
+        if is_nested:
+          has_nested = True
+        fields.append((name, is_nested))
+      else:
+        fields.append((name, False))
+  else:
+    # Fallback: check all fields
+    for name in config_cls.model_fields:
+      if name.startswith("_"):
+        continue
+      is_nested = _is_nested_type(data.get(name))
+      if is_nested:
+        has_nested = True
+      fields.append((name, is_nested))
+
+  return fields, has_nested
+
+
+def _could_be_nested_type(annotation: Any) -> bool:
+  """Check if a type annotation could potentially contain a Config object."""
+  if annotation is None:
+    return True  # Any
+
+  from typing import get_args, get_origin
+
+  origin = get_origin(annotation)
+  if origin is not None:
+    # Check args for Unions/Sequences/etc.
+    return any(_could_be_nested_type(arg) for arg in get_args(annotation))
+
+  # Simple types
+  return annotation not in (int, float, str, bool, type(None))
+
+
+def _is_nested_type(value: Any) -> bool:
+  """Check if a value might contain nested Config objects."""
+  from nonfig.typedefs import DefaultSentinel
+
+  # Handle instances
+  if isinstance(value, MakeableModel | DefaultSentinel):
+    return True
+
+  # Handle classes (for default values that might be the class itself)
+  if isinstance(value, type):
+    try:
+      if issubclass(value, MakeableModel):
+        return True
+    except TypeError:
+      pass
+    if hasattr(value, "Config"):  # type: ignore[reportUnknownArgumentType]
+      return True
+
+  # Handle sequences/mappings
+  if isinstance(value, list | tuple | set | frozenset):
+    return any(_is_nested_type(item) for item in value)  # type: ignore[reportUnknownVariableType]
+
+  if isinstance(value, dict):
+    return any(_is_nested_type(v) for v in value.values())  # type: ignore[reportUnknownVariableType]
+
+  # Check if it's a configurable function (has .Config)
+  return bool(
+    callable(value) and hasattr(value, "Config")  # type: ignore[reportUnknownArgumentType]
+  )
+
+
+def _create_class_make_impl[T](cls: type[T], is_leaf: bool = False) -> Callable[[MakeableModel[T]], T]:
   """Create the _make_impl() method for a class Config."""
+  if is_leaf:
+
+    def _make_impl_leaf(self: MakeableModel[T]) -> T:
+      # Ultra-fast leaf path: direct instantiation from __dict__
+      return cls(**self.__dict__)
+
+    return _make_impl_leaf
 
   def _make_impl(self: MakeableModel[T]) -> T:
-    # Extract fields and recursively make nested configs
-    kwargs = get_public_fields(self)
-    made_kwargs: dict[str, Any] = {}
+    # Optimized instantiation:
+    # 1. Use pre-calculated fields to avoid discovery loop
+    # 2. Use __dict__ to bypass Pydantic's getattr overhead
+    # 3. Bypass loop entirely if no nested fields
+    data = self.__dict__
+    private = cast("dict[str, Any]", self.__pydantic_private__)
 
-    for name, value in kwargs.items():
-      made_kwargs[name] = _recursive_make(value)
+    if not private["_has_nested"]:
+      return cls(**data)
+
+    made_kwargs: dict[str, Any] = {}
+    for name, is_nested in cast("list[tuple[str, bool]]", private["_make_fields"]):
+      value = data[name]
+      if is_nested:
+        made_kwargs[name] = _recursive_make(value)
+      else:
+        made_kwargs[name] = value
 
     # Create instance
     return cls(**made_kwargs)
@@ -241,35 +379,61 @@ def _create_function_config(
   config_name = _to_pascal_case(func.__name__) + "Config"
 
   # Create the model dynamically - pyright can't infer the type here
-  config_cls: type[MakeableModel[Callable[..., Any]]] = create_model(  # pyright: ignore[reportUnknownVariableType]
-    config_name,
-    __base__=MakeableModel[return_type],  # type: ignore[valid-type]
-    **params,  # type: ignore[arg-type]
+  config_cls = cast(
+    "Any",
+    create_model(
+      config_name,
+      __base__=MakeableModel[return_type],  # type: ignore[valid-type]
+      **params,  # type: ignore[arg-type]
+    ),
   )
 
   # Propagate docstring
   if func.__doc__:
     config_cls.__doc__ = f"Configuration for {func.__name__}.\n\n{func.__doc__}"
 
-  # Add the _make_impl method (base class handles caching in make())
-  config_cls._make_impl = _create_function_make_impl(func)  # type: ignore[method-assign]
+  # Pre-calculate which fields could be nested
+  maybe_nested = calculate_class_make_fields(config_cls)
+  is_leaf = not maybe_nested
+  config_cls._maybe_nested_fields = maybe_nested
+  config_cls._is_always_leaf = is_leaf
 
-  return config_cls  # pyright: ignore[reportUnknownVariableType]
+  # Add the _make_impl method
+  config_cls._make_impl = _create_function_make_impl(func, is_leaf=is_leaf)
+
+  return cast("type[MakeableModel[Callable[..., Any]]]", config_cls)
 
 
 def _create_function_make_impl(
   func: Callable[..., Any],
+  is_leaf: bool = False,
 ) -> Callable[[MakeableModel[Any]], BoundFunction[Any]]:
   """Create the _make_impl() method for a function Config."""
+  if is_leaf:
+
+    def _make_impl_leaf(self: MakeableModel[Any]) -> BoundFunction[Any]:
+      return BoundFunction(func, self.__dict__)
+
+    return _make_impl_leaf
 
   def _make_impl(self: MakeableModel[Any]) -> BoundFunction[Any]:
-    # Extract hyper args
-    hyper_kwargs = get_public_fields(self)
+    # Optimized instantiation:
+    # 1. Use pre-calculated fields to avoid discovery loop
+    # 2. Use __dict__ to bypass Pydantic's getattr overhead
+    # 3. Bypass loop entirely if no nested fields
+    data = self.__dict__
+    private = cast("dict[str, Any]", self.__pydantic_private__)
 
-    # Recursively make nested configs
+    if not private["_has_nested"]:
+      return BoundFunction(func, data)
+
     made_kwargs: dict[str, Any] = {}
-    for name, value in hyper_kwargs.items():
-      made_kwargs[name] = _recursive_make(value)
+    for name, is_nested in cast("list[tuple[str, bool]]", private["_make_fields"]):
+      value = data[name]
+      if is_nested:
+        made_kwargs[name] = _recursive_make(value)
+      else:
+        made_kwargs[name] = value
 
     # Create BoundFunction that exposes hyper params as attributes
     return BoundFunction(func, made_kwargs)

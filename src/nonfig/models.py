@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from types import UnionType
-from typing import Any, get_args, get_origin, override
+from typing import Any, cast, get_args, get_origin, override
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
@@ -16,33 +16,47 @@ __all__ = [
 
 
 class MakeableModel[R](BaseModel):
-  """
-  Base class for generated Config classes.
-
-  Provides:
-  - Frozen (immutable) configuration
-  - make() method to instantiate the target
-  - Instance caching (in base class)
-  - Arbitrary type support
-  """
+  """Base class for all Config models."""
 
   model_config = ConfigDict(
-    frozen=True,
     arbitrary_types_allowed=True,
+    validate_assignment=True,
+    extra="ignore",
+    frozen=True,
   )
 
-  _instance: R | None = PrivateAttr(default=None)
+  # Internal metadata for optimized make()
+  # _make_fields: list of (field_name, is_nested)
+  # _has_nested: bool indicating if any field is nested
+  _make_fields: list[tuple[str, bool]] = PrivateAttr(default_factory=list)
+  _has_nested: bool = PrivateAttr(default=False)
 
   def make(self) -> R:
     """Create an instance of the target from this config.
 
-    Handles caching automatically. Subclasses should override _make_impl().
+    Subclasses should override _make_impl().
     """
-    if self._instance is not None:
-      return self._instance
-    instance = self._make_impl()
-    self._instance = instance
-    return instance
+    config_cls = type(self)
+    cls_dict = config_cls.__dict__
+
+    # Ultra-fast path: if class is guaranteed to have no nested fields,
+    # we can bypass everything.
+    if cls_dict.get("_is_always_leaf"):
+      return self._make_impl()
+
+    # Optimized access to private metadata to bypass Pydantic overhead
+    private = cast("dict[str, Any]", self.__pydantic_private__)
+    assert private is not None  # noqa: S101
+
+    # Initialize metadata if not already done (once per instance)
+    if not private["_make_fields"]:
+      from nonfig.generation import calculate_make_fields
+
+      fields, has_nested = calculate_make_fields(self)
+      private["_make_fields"] = fields
+      private["_has_nested"] = has_nested
+
+    return self._make_impl()
 
   @override
   def __str__(self) -> str:
