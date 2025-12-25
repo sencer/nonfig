@@ -196,6 +196,13 @@ Network = configurable(Network)  # For full typing support
 **Available constraints:** `Ge` (>=), `Gt` (>), `Le` (≤), `Lt` (<), `MinLen`,
 `MaxLen`, `MultipleOf`, `Pattern`.
 
+> **Note on Constraint Syntax**: Constraints use bracket syntax (`Ge[0]`) rather than
+> callable syntax (`Ge(0)`) to maintain compatibility with `Hyper[int]` single-argument
+> form in strict type checking. Python type checkers cannot simultaneously support both
+> `Hyper[int]` and `Hyper[int, Ge(0)]` due to limitations in how they handle type
+> aliases and callable expressions in type positions. The bracket syntax ensures that
+> common patterns like `x: Hyper[int] = 10` work correctly without requiring workarounds.
+
 ### Nested Configurations
 
 Use `DEFAULT` to compose configs hierarchically—nested components use their own defaults
