@@ -20,8 +20,7 @@ from pydantic import Field
 from pydantic.fields import FieldInfo
 
 from nonfig.constraints import PatternConstraint, validate_constraint_conflicts
-from nonfig.models import MakeableModel
-from nonfig.typedefs import DefaultSentinel, HyperMarker
+from nonfig.models import DefaultSentinel, HyperMarker, MakeableModel
 
 __all__ = [
   "extract_class_params",

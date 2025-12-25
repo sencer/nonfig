@@ -1,31 +1,18 @@
 """Core type definitions for nonfig."""
 
-from typing import TYPE_CHECKING, Annotated, Any, Never, Protocol, override
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Annotated, Any, Never, Protocol
+
+if TYPE_CHECKING:
+  from nonfig.models import DefaultSentinel, HyperMarker
 
 __all__ = [
   "DEFAULT",
   "Configurable",
   "ConfigurableFunc",
-  "DefaultSentinel",
   "Hyper",
-  "HyperMarker",
 ]
-
-
-class HyperMarker:
-  """Sentinel class to mark parameters as hyperparameters."""
-
-  __slots__ = ()
-
-
-class DefaultSentinel:
-  """Sentinel to indicate a field should use its type's default Config."""
-
-  __slots__ = ()
-
-  @override
-  def __repr__(self) -> str:
-    return "DEFAULT"
 
 
 if TYPE_CHECKING:
@@ -33,6 +20,8 @@ if TYPE_CHECKING:
   # Using Never makes it a bottom type that's assignable to anything
   DEFAULT: Never
 else:
+  from nonfig.models import DefaultSentinel
+
   DEFAULT = DefaultSentinel()
 
 
@@ -41,6 +30,7 @@ if TYPE_CHECKING:
   # This makes it fully transparent to type checkers
   type Hyper[T, *Args] = Annotated[T, HyperMarker, *Args]
 else:
+  from nonfig.models import HyperMarker
 
   class Hyper:
     """
