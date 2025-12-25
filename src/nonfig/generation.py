@@ -19,7 +19,12 @@ from nonfig.extraction import (
   extract_class_params,
   extract_function_hyper_params,
 )
-from nonfig.models import BoundFunction, MakeableModel
+from nonfig.models import (
+  BoundFunction,
+  MakeableModel,
+  calculate_class_make_fields,
+  recursive_make,
+)
 
 if TYPE_CHECKING:
   from pydantic.fields import FieldInfo
@@ -207,120 +212,12 @@ def _create_class_fast_make[T](
     for name in nested_names:
       if name in kwargs:
         val = kwargs[name]
-        made = _recursive_make(val)
+        made = recursive_make(val)
         if made is not val:
           kwargs[name] = made
     return cls(**kwargs)
 
   return fast_make_nested
-
-
-def calculate_class_make_fields(
-  config_cls: type[MakeableModel[Any]],
-) -> set[str]:
-  """Identify fields that COULD be nested based on type hints.
-
-  This is called once per Config class at decoration time.
-  """
-  maybe_nested: set[str] = set()
-  for name, field in config_cls.model_fields.items():
-    if name.startswith("_"):
-      continue
-
-    # Check if the type hint suggests it could be a Config object
-    if _could_be_nested_type(field.annotation):
-      maybe_nested.add(name)
-
-  return maybe_nested
-
-
-def calculate_make_fields(
-  model: MakeableModel[Any],
-) -> tuple[list[tuple[str, bool]], bool]:
-  """Calculate which fields need recursive make() based on actual values.
-
-  Uses class-level 'maybe_nested' hint to avoid checking every field.
-  """
-  fields: list[tuple[str, bool]] = []
-  has_nested = False
-  data = model.__dict__
-  config_cls = type(model)
-
-  # Get hint from class if available, otherwise check all fields
-  # Accessing via __dict__ to avoid descriptor overhead if any
-  maybe_nested = config_cls.__dict__.get("_maybe_nested_fields")
-
-  if maybe_nested is not None:
-    # Optimized path: only check fields that COULD be nested
-    for name in config_cls.model_fields:
-      if name.startswith("_"):
-        continue
-
-      if name in maybe_nested:
-        is_nested = _is_nested_type(data.get(name))
-        if is_nested:
-          has_nested = True
-        fields.append((name, is_nested))
-      else:
-        fields.append((name, False))
-  else:
-    # Fallback: check all fields
-    for name in config_cls.model_fields:
-      if name.startswith("_"):
-        continue
-      is_nested = _is_nested_type(data.get(name))
-      if is_nested:
-        has_nested = True
-      fields.append((name, is_nested))
-
-  return fields, has_nested
-
-
-def _could_be_nested_type(annotation: Any) -> bool:
-  """Check if a type annotation could potentially contain a Config object."""
-  if annotation is None:
-    return True  # Any
-
-  from typing import get_args, get_origin
-
-  origin = get_origin(annotation)
-  if origin is not None:
-    # Check args for Unions/Sequences/etc.
-    return any(_could_be_nested_type(arg) for arg in get_args(annotation))
-
-  # Simple types
-  return annotation not in (int, float, str, bool, type(None))
-
-
-def _is_nested_type(value: Any) -> bool:
-  """Check if a value might contain nested Config objects."""
-  from nonfig.typedefs import DefaultSentinel
-
-  # Handle instances
-  if isinstance(value, MakeableModel | DefaultSentinel):
-    return True
-
-  # Handle classes (for default values that might be the class itself)
-  if isinstance(value, type):
-    try:
-      if issubclass(value, MakeableModel):
-        return True
-    except TypeError:
-      pass
-    if hasattr(value, "Config"):  # type: ignore[reportUnknownArgumentType]
-      return True
-
-  # Handle sequences/mappings
-  if isinstance(value, list | tuple | set | frozenset):
-    return any(_is_nested_type(item) for item in value)  # type: ignore[reportUnknownVariableType]
-
-  if isinstance(value, dict):
-    return any(_is_nested_type(v) for v in value.values())  # type: ignore[reportUnknownVariableType]
-
-  # Check if it's a configurable function (has .Config)
-  return bool(
-    callable(value) and hasattr(value, "Config")  # type: ignore[reportUnknownArgumentType]
-  )
 
 
 def _create_class_make_impl[T](
@@ -352,7 +249,7 @@ def _create_class_make_impl[T](
     updates: dict[str, Any] = {}
     for name in nested_names:
       value = data[name]
-      made = _recursive_make(value)
+      made = recursive_make(value)
       if made is not value:
         updates[name] = made
 
@@ -471,7 +368,7 @@ def _create_function_fast_make(
     for name in nested_names:
       if name in kwargs:
         val = kwargs[name]
-        made = _recursive_make(val)
+        made = recursive_make(val)
         if made is not val:
           kwargs[name] = made
     return BoundFunction(func, kwargs)
@@ -505,7 +402,7 @@ def _create_function_make_impl(
     updates: dict[str, Any] = {}
     for name in nested_names:
       value = data[name]
-      made = _recursive_make(value)
+      made = recursive_make(value)
       if made is not value:
         updates[name] = made
 
@@ -515,41 +412,6 @@ def _create_function_make_impl(
     return BoundFunction(func, data | updates)
 
   return _make_impl_nested
-
-
-def _recursive_make(value: Any) -> Any:
-  """
-  Recursively make nested config objects.
-
-  If value is a MakeableModel, call make() on it.
-  If value is a list/dict, recursively process elements.
-  """
-  # Fast path for common types
-  v_type = type(value)  # type: ignore[reportUnknownVariableType]
-  if v_type in (int, float, str, bool, type(None)):
-    return value
-
-  # Make MakeableModel instances
-  if isinstance(value, MakeableModel):
-    return value.make()
-
-  # Recursively handle sequences (list, tuple, set, etc.)
-  if v_type is list:
-    return [_recursive_make(item) for item in cast("list[Any]", value)]  # pyright: ignore
-
-  if v_type is dict:
-    return {k: _recursive_make(v) for k, v in cast("dict[Any, Any]", value).items()}
-
-  if v_type is tuple:
-    return tuple(_recursive_make(item) for item in cast("tuple[Any, ...]", value))
-
-  if v_type is set:
-    return {_recursive_make(item) for item in cast("set[Any]", value)}
-
-  if v_type is frozenset:
-    return frozenset(_recursive_make(item) for item in cast("frozenset[Any]", value))
-
-  return value
 
 
 def _create_type_proxy(
