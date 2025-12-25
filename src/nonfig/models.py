@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from types import UnionType
 from typing import Any, cast, get_args, get_origin, override
 
@@ -13,6 +13,9 @@ __all__ = [
   "MakeableModel",
   "is_makeable_model",
 ]
+
+
+from nonfig.typedefs import DefaultSentinel
 
 
 class MakeableModel[R](BaseModel):
@@ -49,8 +52,6 @@ class MakeableModel[R](BaseModel):
         private["_make_fields"] = [("_", False)]
         return self._make_impl()
 
-      from nonfig.generation import calculate_make_fields
-
       fields, has_nested = calculate_make_fields(self)
       private["_make_fields"] = fields
       private["_has_nested"] = has_nested
@@ -64,6 +65,160 @@ class MakeableModel[R](BaseModel):
   def _make_impl(self) -> R:
     """Override this method to implement instance creation."""
     raise NotImplementedError("Subclasses must implement _make_impl()")
+
+
+def calculate_class_make_fields(
+  config_cls: type[MakeableModel[Any]],
+) -> set[str]:
+  """Identify fields that COULD be nested based on type hints.
+
+  This is called once per Config class at decoration time.
+  """
+  maybe_nested: set[str] = set()
+  for name, field in config_cls.model_fields.items():
+    if name.startswith("_"):
+      continue
+
+    # Check if the type hint suggests it could be a Config object
+    if could_be_nested_type(field.annotation):
+      maybe_nested.add(name)
+
+  return maybe_nested
+
+
+def calculate_make_fields(
+  model: MakeableModel[Any],
+) -> tuple[list[tuple[str, bool]], bool]:
+  """Calculate which fields need recursive make() based on actual values.
+
+  Uses class-level 'maybe_nested' hint to avoid checking every field.
+  """
+  fields: list[tuple[str, bool]] = []
+  has_nested = False
+  data = model.__dict__
+  config_cls = type(model)
+
+  # Get hint from class if available, otherwise check all fields
+  # Accessing via __dict__ to avoid descriptor overhead if any
+  maybe_nested = config_cls.__dict__.get("_maybe_nested_fields")
+
+  if maybe_nested is not None:
+    # Optimized path: only check fields that COULD be nested
+    for name in config_cls.model_fields:
+      if name.startswith("_"):
+        continue
+
+      if name in maybe_nested:
+        is_nested = is_nested_type(data.get(name))
+        if is_nested:
+          has_nested = True
+        fields.append((name, is_nested))
+      else:
+        fields.append((name, False))
+  else:
+    # Fallback: check all fields
+    for name in config_cls.model_fields:
+      if name.startswith("_"):
+        continue
+      is_nested = is_nested_type(data.get(name))
+      if is_nested:
+        has_nested = True
+      fields.append((name, is_nested))
+
+  return fields, has_nested
+
+
+def could_be_nested_type(annotation: Any) -> bool:
+  """Check if a type annotation could potentially contain a Config object."""
+  if annotation is None:
+    return True  # Any
+
+  origin = get_origin(annotation)
+  if origin is not None:
+    # Check args for Unions/Sequences/etc.
+    return any(could_be_nested_type(arg) for arg in get_args(annotation))
+
+  # Simple types
+  return annotation not in (int, float, str, bool, type(None))
+
+
+def is_nested_type(value: Any) -> bool:
+  """Check if a value might contain nested Config objects."""
+  # Handle instances
+  if isinstance(value, MakeableModel | DefaultSentinel):
+    return True
+
+  # Handle classes (for default values that might be the class itself)
+  if isinstance(value, type):
+    try:
+      # Use cast to Any to avoid "type[Unknown]" issues in basedpyright
+      v_type = cast("Any", value)
+      if issubclass(v_type, MakeableModel):
+        return True
+    except TypeError:
+      pass
+    if hasattr(value, "Config"):
+      return True
+
+  # Handle sequences/mappings
+  if isinstance(value, list | tuple | set | frozenset):
+    return any(is_nested_type(item) for item in cast("Sequence[Any]", value))
+
+  if isinstance(value, dict):
+    return any(
+      is_nested_type(v) for v in cast("dict[Any, Any]", value).values()
+    )
+
+  # Check if it's a configurable function (has .Config)
+  return bool(callable(value) and hasattr(cast("Any", value), "Config"))
+
+
+def recursive_make(value: Any) -> Any:
+  """
+  Recursively make nested config objects.
+
+  If value is a MakeableModel, call make() on it.
+  If value is a list/dict, recursively process elements.
+  """
+  # Fast path for common types
+  if value is None or isinstance(value, int | float | str | bool):
+    return value
+
+  # Make MakeableModel instances
+  if isinstance(value, MakeableModel):
+    res_make: Any = cast("MakeableModel[Any]", value).make()
+    return res_make
+
+  # Recursively handle sequences (list, tuple, set, etc.)
+  # Use unique names to avoid basedpyright redeclaration errors
+  v_type = type(value)  # type: ignore[reportUnknownVariableType]
+  if v_type is list:
+    res_list: Any = [recursive_make(item) for item in cast("list[Any]", value)]
+    return res_list
+
+  if v_type is dict:
+    res_dict: Any = {
+      k: recursive_make(v) for k, v in cast("dict[Any, Any]", value).items()
+    }
+    return res_dict
+
+  if v_type is tuple:
+    res_tuple: Any = tuple(
+      recursive_make(item) for item in cast("tuple[Any, ...]", value)
+    )
+    return res_tuple
+
+  if v_type is set:
+    res_set: Any = {recursive_make(item) for item in cast("set[Any]", value)}
+    return res_set
+
+  if v_type is frozenset:
+    res_fset: Any = frozenset(
+      recursive_make(item) for item in cast("frozenset[Any]", value)
+    )
+    return res_fset
+
+  return value
 
 
 class BoundFunction[R]:
