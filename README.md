@@ -161,20 +161,6 @@ def train(
     return {"trained": True}
 ```
 
-Internally, `nonfig` treats this as if it were a dataclass with a `__call__` method,
-where the `Hyper[T]` parameters become fields:
-
-```python
-@configurable
-@dataclass
-class train:
-    epochs: Hyper[int, Ge[1]] = 100
-    lr: Hyper[float, Gt[0.0]] = 0.001
-
-    def __call__(self, data: list[float]) -> dict:
-        return {"trained": True}
-```
-
 ### Constraints & Validation
 
 The `Hyper[T]` annotation attaches validation constraints to parameters:
@@ -196,157 +182,57 @@ Network = configurable(Network)  # For full typing support
 **Available constraints:** `Ge` (>=), `Gt` (>), `Le` (≤), `Lt` (<), `MinLen`,
 `MaxLen`, `MultipleOf`, `Pattern`.
 
-> **Note on Constraint Syntax**: Constraints use bracket syntax (`Ge[0]`) rather than
-> callable syntax (`Ge(0)`) to maintain compatibility with `Hyper[int]` single-argument
-> form in strict type checking. Python type checkers cannot simultaneously support both
-> `Hyper[int]` and `Hyper[int, Ge(0)]` due to limitations in how they handle type
-> aliases and callable expressions in type positions. The bracket syntax ensures that
-> common patterns like `x: Hyper[int] = 10` work correctly without requiring workarounds.
-
 ### Nested Configurations
 
-Use `DEFAULT` to compose configs hierarchically—nested components use their own defaults
-unless overridden:
+Use `DEFAULT` to compose configs hierarchically:
 
 ```python
-# Or: Pipeline = configurable(Pipeline) after class body for full typing support
 @configurable
 @dataclass
 class Pipeline:
     model: Model = DEFAULT      # Uses Model's defaults
     optimizer: Optimizer = DEFAULT
 
-# Override nested values
 config = Pipeline.Config(
     model=Model.Config(hidden_size=512),
-    optimizer=Optimizer.Config(learning_rate=0.001),
 )
-pipeline = config.make()  # All nested configs are instantiated
+pipeline = config.make()
 ```
 
-After `make()`, nested fields are instances:
+## Performance & Optimization
+
+`nonfig` is designed for high-performance applications like machine learning training
+loops.
+
+### Core Performance
+
+| Pattern | Typical Latency* | Notes |
+| :--- | :--- | :--- |
+| **Raw Instantiation** | ~0.3µs | Baseline Python class creation |
+| **Direct Call** | ~0.3µs | Calling decorated class/function (Zero Overhead) |
+| **Reused `Config.make()`** | ~0.6µs | Metadata-cached factory call |
+| **`Config.fast_make()`** | ~0.5µs | Bypasses Pydantic for maximum speed |
+| **Full lifecycle** | ~3.3µs | `Config(...).make()` (includes validation) |
+
+*\* Measured on Python 3.13, Linux x86_64.*
+
+### High-Performance Usage (`fast_make`)
+
+When you need to create instances in a hot loop and you already trust your parameters,
+use the static `.fast_make()` method. It bypasses Pydantic's internal validation and
+coercion logic for maximum speed:
 
 ```python
-print(pipeline.model.hidden_size)      # 512
-print(pipeline.optimizer.learning_rate)  # 0.001
+# Execution (Fast path, validation-free)
+for _ in range(1_000_000):
+    # OR use FastModel.Config.fast_make() to bypass Pydantic (~0.5µs)
+    model = FastModel.Config.fast_make(learning_rate=0.01)
 ```
 
-### Collections & Lists
+### Factory Pattern (Non-Caching)
 
-Use standard typed collections like `list[T]` and `dict[str, T]` for configurable
-objects:
-
-```python
-from dataclasses import dataclass
-from nonfig import configurable, DEFAULT
-
-# Or: Layer = configurable(Layer) after class body for full typing support
-@configurable
-@dataclass
-class Layer:
-    size: int = 10
-
-@configurable
-@dataclass
-class Network:
-    layers: list[Layer] = DEFAULT
-
-config = Network.Config(
-    layers=[
-        Layer.Config(size=32),
-        Layer.Config(size=64),
-    ]
-)
-net = config.make()
-# net.layers is now [Layer(size=32), Layer(size=64)]
-```
-
-### Nested Functions
-
-Nest configurable functions using the `.Type` attribute and the function itself as default:
-
-```python
-@configurable
-def activation(x: float, limit: Hyper[float] = 1.0) -> float:
-    return min(x, limit)
-
-# Or: Layer = configurable(Layer) after class body for full typing support
-@configurable
-@dataclass
-class Layer:
-    act_fn: activation.Type = activation  # Use the function itself as default
-
-# Direct instantiation uses the function with its defaults
-layer = Layer()
-print(layer.act_fn(2.0))  # Output: 1.0
-
-# Or via Config for validation + serialization
-config = Layer.Config()
-layer = config.make()
-print(layer.act_fn(2.0))  # Output: 1.0
-
-# Override nested config
-config = Layer.Config(act_fn=activation.Config(limit=3.0))
-layer = config.make()
-print(layer.act_fn(2.0))  # Output: 2.0
-```
-
-The `.Type` attribute provides correct type inference: it's typed as `Callable[..., R]`
-where `R` is the return type. This works with type checkers out of the box.
-
-### Literal Types & Enums
-
-Use `Literal` or `Enum` for fixed choices:
-
-```python
-from typing import Literal
-from enum import Enum
-
-class Mode(str, Enum):
-    FAST = "fast"
-    SLOW = "slow"
-
-@configurable
-class Processor:
-    def __init__(
-        self,
-        mode: Literal["train", "eval"] = "train",
-        priority: Mode = Mode.FAST,
-    ):
-        self.mode = mode
-        self.priority = priority
-```
-
-## Type Checking
-
-### Built-in Type Support
-
-`nonfig` provides full type inference out of the box. Your IDE understands `.Config`
-and `.make()` without any extra steps:
-
-```python
-@configurable
-class Model:
-    def __init__(self, x: int, y: str = "default") -> None: ...
-
-config = Model.Config(x=5, y="hello")  # Parameters are typed!
-instance = config.make()                # Returns Model
-```
-
-For functions, IDE autocomplete shows all parameters (not just `Hyper` ones) in
-`.Config()`—a minor trade-off for typed params without stubs.
-
-### Stub Generation for Libraries
-
-For library authors distributing configurable components, generate `.pyi` stubs for
-complete and accurate type information:
-
-```bash
-nonfig-stubgen src/
-```
-
-This provides exact `Hyper`-only signatures for functions and full support for any
-decorator stacking pattern.
+Every call to `.make()` returns a **fresh instance**. This ensures that configurations
+remain pure "recipes" and do not accidentally share mutable state between components.
 
 ## Serialization
 
@@ -360,26 +246,14 @@ config.model_dump()
 config.model_dump_json()
 
 # From dict/JSON
-Model.Config(**some_dict)
 Model.Config.model_validate_json(json_string)
 ```
 
 ## Advanced Features
 
-### Validation & Safety
-
-- **Constraint conflicts** detected at decoration time: `Hyper[int, Ge[10], Le[5]]` →
-  error
-
-- **Invalid regex** patterns caught immediately
-
-- **Circular dependencies** in nested configs → error
-
-- **Reserved names**: `model_config` is reserved by Pydantic
-
-### Thread Safety
-
-`@configurable` is thread-safe for concurrent config creation and usage.
+- **Circular dependencies** in nested configs are detected and prevented.
+- **Stub generation**: Use `nonfig-stubgen src/` for perfect IDE support in libraries.
+- **Thread safe**: Concurrent config creation and usage is fully supported.
 
 ## Comparison
 
@@ -390,26 +264,6 @@ Model.Config.model_validate_json(json_string)
 | **Type Checking** | Full (.pyi stubs) | None | Partial | Full |
 | **Boilerplate** | Minimal | Minimal | Moderate | Minimal |
 | **Serialization** | Pydantic native | Custom | YAML | YAML/JSON |
-| **Best For** | Type-safe APIs, ML experiments | Google-style DI | Complex multi-run | CLI tools |
-
-## Examples
-
-See the [`examples/`](examples/) directory for complete working examples including:
-- **ML Pipeline**: Nested configurations for model, optimizer, and data preprocessing
-- **Nested Functions**: Using `fn.Type = fn` pattern for composable function configs
-- **Configurable Functions**: Using `Hyper[T]` with constraints
-- **Stub Generation**: IDE autocomplete with generated `.pyi` stubs
-
-## Performance
-
-Typical overhead on modern hardware*:
-
-- Config creation: ~2µs
-- `make()` overhead: ~2µs
-- Direct function call overhead: ~0.1µs vs raw function
-- Full pattern `Config().make()()`: ~6–7µs
-
-Run `benchmarks/` to verify on your machine. *Measured on Python 3.12, Apple M2.
 
 ## Contributing
 
