@@ -252,7 +252,7 @@ Model.Config.model_validate_json(json_string)
 ## Advanced Features
 
 - **Circular dependencies** in nested configs are detected and prevented.
-- **Stub generation**: Use `nonfig-stubgen src/` for perfect IDE support in libraries.
+- **Stub generation**: Use `nonfig-stubgen src/` or `nonfig-stubgen "src/**/*.py"` for perfect IDE support in libraries. Supports glob patterns.
 - **Thread safe**: Concurrent config creation and usage is fully supported.
 
 ## Comparison

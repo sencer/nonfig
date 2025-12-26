@@ -193,6 +193,9 @@ def recursive_make(value: Any) -> Any:
   If value is a MakeableModel, call make() on it.
   If value is a list/dict, recursively process elements.
   """
+  # Recursively make nested config objects.
+  recurse = recursive_make
+
   # Fast path for common types
   if value is None or isinstance(value, int | float | str | bool):
     return value
@@ -202,34 +205,51 @@ def recursive_make(value: Any) -> Any:
     res_make: Any = cast("MakeableModel[Any]", value).make()
     return res_make
 
+  # Import aliases for runtime checks to avoid "isinstance arg 2 must be a type"
+  from collections.abc import Mapping as MappingABC
+  from collections.abc import Sequence as SequenceABC
+
   # Recursively handle sequences (list, tuple, set, etc.)
   # Use unique names to avoid basedpyright redeclaration errors
   v_type = type(value)  # type: ignore[reportUnknownVariableType]
+  
+  # Concrete types first for performance
   if v_type is list:
-    res_list: Any = [recursive_make(item) for item in cast("list[Any]", value)]
+    res_list: Any = [recurse(item) for item in cast("list[Any]", value)]
     return res_list
 
   if v_type is dict:
     res_dict: Any = {
-      k: recursive_make(v) for k, v in cast("dict[Any, Any]", value).items()
+      k: recurse(v) for k, v in cast("dict[Any, Any]", value).items()
     }
     return res_dict
 
   if v_type is tuple:
     res_tuple: Any = tuple(
-      recursive_make(item) for item in cast("tuple[Any, ...]", value)
+      recurse(item) for item in cast("tuple[Any, ...]", value)
     )
     return res_tuple
 
   if v_type is set:
-    res_set: Any = {recursive_make(item) for item in cast("set[Any]", value)}
+    res_set: Any = {recurse(item) for item in cast("set[Any]", value)}
     return res_set
 
   if v_type is frozenset:
     res_fset: Any = frozenset(
-      recursive_make(item) for item in cast("frozenset[Any]", value)
+      recurse(item) for item in cast("frozenset[Any]", value)
     )
     return res_fset
+
+  # Fallback for generic Sequence (excluding str/bytes)
+  # Done after concrete checks for performance (isinstance on ABC is slow)
+  if isinstance(value, SequenceABC) and not isinstance(value, (str, bytes)):
+    # Convert generic sequences to list to ensure we return a fully realized object
+    return [recurse(item) for item in cast("Sequence[Any]", value)]
+
+  # Fallback for generic Mapping
+  if isinstance(value, MappingABC):
+    # Convert generic mappings to dict
+    return {k: recurse(v) for k, v in cast("Mapping[Any, Any]", value).items()}
 
   return value
 

@@ -70,7 +70,7 @@ def test_is_configurable_decorated():
   tree = ast.parse(code)
   func_def = tree.body[0]
   assert isinstance(func_def, ast.FunctionDef)
-  assert _is_configurable_decorator(func_def.decorator_list[0])
+  assert _is_configurable_decorator(func_def.decorator_list[0], {"configurable"})
 
   code = "def bar(): pass"
   tree = ast.parse(code)
@@ -402,7 +402,7 @@ def test_scan_function():
   func = tree.body[0]
   assert isinstance(func, ast.FunctionDef)
 
-  info = _scan_function(func)
+  info = _scan_function(func, {"configurable"})
   assert info is not None
   assert info.name == "my_func"
   assert len(info.params) == 1
@@ -421,7 +421,7 @@ def test_scan_class():
   cls = tree.body[0]
   assert isinstance(cls, ast.ClassDef)
 
-  info = _scan_class(cls)
+  info = _scan_class(cls, {"configurable"})
   assert info is not None
   assert info.name == "MyClass"
   assert info.is_class is True
@@ -441,7 +441,7 @@ def test_scan_class_with_dataclass_fields():
   cls = tree.body[0]
   assert isinstance(cls, ast.ClassDef)
 
-  info = _scan_class(cls)
+  info = _scan_class(cls, {"configurable"})
   assert info is not None
   assert len(info.params) == 2
   assert info.params[0].name == "x"

@@ -37,6 +37,36 @@ _config_creation_stack: ContextVar[list[str] | None] = ContextVar(
 )
 
 
+class ConfigCreationContext:
+  """Context manager for tracking config creation depth and detecting cycles."""
+
+  def __init__(
+    self,
+    config_name: str,
+    context_var: ContextVar[list[str] | None],
+    param_name: str,
+  ) -> None:
+    self.config_name = config_name
+    self.context_var = context_var
+    self.param_name = param_name
+    self.token = None
+
+  def __enter__(self) -> None:
+    stack = self.context_var.get() or []
+    if self.config_name in stack:
+      cycle_path = " -> ".join([*stack, self.config_name])
+      raise ValueError(
+        f"Circular dependency detected: {cycle_path}. Parameter '{self.param_name}' creates a cycle."
+      )
+
+    new_stack = [*stack, self.config_name]
+    self.token = self.context_var.set(new_stack)
+
+  def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    if self.token:
+      self.context_var.reset(self.token)
+
+
 def has_hyper_marker(type_ann: Any) -> bool:
   """Check if a type annotation has the HyperMarker."""
   if get_origin(type_ann) is Annotated:
@@ -219,35 +249,22 @@ def _instantiate_default_config(
   """
   config_name = f"{config_cls.__module__}.{config_cls.__qualname__}"
 
-  # Check for circular dependency
-  stack = _config_creation_stack.get() or []
-  if config_name in stack:
-    cycle_path = " -> ".join([*stack, config_name])
-    raise ValueError(
-      f"Circular dependency detected: {cycle_path}. Parameter '{param_name}' creates a cycle."
-    )
-
-  # Track this config creation
-  new_stack = [*stack, config_name]
-  token = _config_creation_stack.set(new_stack)
-
-  try:
-    instance = config_cls()
-    # Verify the instance has a callable make method
-    if not hasattr(instance, "make") or not callable(instance.make):
+  with ConfigCreationContext(config_name, _config_creation_stack, param_name):
+    try:
+      instance = config_cls()
+      # Verify the instance has a callable make method
+      if not hasattr(instance, "make") or not callable(instance.make):
+        raise TypeError(
+          f"Nested config type '{config_cls.__name__}' for parameter '{param_name}' does not have a callable 'make' method"
+        )
+      return instance
+    except (ValueError, TypeError):
+      # Re-raise ValueError (circular dep) and TypeError (our own) as-is
+      raise
+    except Exception as e:
       raise TypeError(
-        f"Nested config type '{config_cls.__name__}' for parameter '{param_name}' does not have a callable 'make' method"
-      )
-    return instance
-  except (ValueError, TypeError):
-    # Re-raise ValueError (circular dep) and TypeError (our own) as-is
-    raise
-  except Exception as e:
-    raise TypeError(
-      f"Failed to instantiate nested config type '{config_cls.__name__}' for parameter '{param_name}': {e}"
-    ) from e
-  finally:
-    _config_creation_stack.reset(token)
+        f"Failed to instantiate nested config type '{config_cls.__name__}' for parameter '{param_name}': {e}"
+      ) from e
 
 
 def create_field_info(
