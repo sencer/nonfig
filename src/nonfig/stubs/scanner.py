@@ -33,12 +33,12 @@ class ConfigurableInfo:
   docstring: str | None = None
 
 
-def _is_configurable_decorator(node: ast.expr) -> bool:
+def _is_configurable_decorator(node: ast.expr, aliases: set[str]) -> bool:
   """Check if a decorator is @configurable."""
   if isinstance(node, ast.Name):
-    return node.id == "configurable"
+    return node.id in aliases
   if isinstance(node, ast.Attribute):
-    return node.attr == "configurable"
+    return node.attr in aliases
   return False
 
 
@@ -183,9 +183,12 @@ def _extract_constraints_from_hyper(node: ast.expr, param_name: str) -> None:
 
 def _scan_function(
   node: ast.FunctionDef | ast.AsyncFunctionDef,
+  configurable_aliases: set[str],
 ) -> ConfigurableInfo | None:
   """Scan a function for @configurable decorator."""
-  has_configurable = any(_is_configurable_decorator(d) for d in node.decorator_list)
+  has_configurable = any(
+    _is_configurable_decorator(d, configurable_aliases) for d in node.decorator_list
+  )
   if not has_configurable:
     return None
 
@@ -250,9 +253,14 @@ def _scan_function(
   )
 
 
-def _scan_class(node: ast.ClassDef) -> ConfigurableInfo | None:
+def _scan_class(
+  node: ast.ClassDef,
+  configurable_aliases: set[str],
+) -> ConfigurableInfo | None:
   """Scan a class for @configurable decorator."""
-  has_configurable = any(_is_configurable_decorator(d) for d in node.decorator_list)
+  has_configurable = any(
+    _is_configurable_decorator(d, configurable_aliases) for d in node.decorator_list
+  )
   if not has_configurable:
     return None
 
@@ -320,20 +328,41 @@ def _scan_class(node: ast.ClassDef) -> ConfigurableInfo | None:
   )
 
 
+def _extract_configurable_aliases(tree: ast.Module) -> set[str]:
+  """Identify names that refer to 'configurable'."""
+  aliases = {"configurable"}
+
+  for node in tree.body:
+    if isinstance(node, ast.ImportFrom):
+      # from nonfig import configurable [as cfg]
+      if node.module == "nonfig":
+        for name in node.names:
+          if name.name == "configurable":
+            aliases.add(name.asname or name.name)
+      # from nonfig.generation import configurable [as cfg]
+      elif node.module == "nonfig.generation":
+        for name in node.names:
+          if name.name == "configurable":
+            aliases.add(name.asname or name.name)
+
+  return aliases
+
+
 def scan_module(path: Path) -> list[ConfigurableInfo]:
   """Scan a Python module for @configurable decorated items."""
   source = path.read_text(encoding="utf-8")
   tree = ast.parse(source)
 
+  configurable_aliases = _extract_configurable_aliases(tree)
   results: list[ConfigurableInfo] = []
 
   for node in ast.walk(tree):
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-      info = _scan_function(node)
+      info = _scan_function(node, configurable_aliases)
       if info:
         results.append(info)
     elif isinstance(node, ast.ClassDef):
-      info = _scan_class(node)
+      info = _scan_class(node, configurable_aliases)
       if info:
         results.append(info)
 

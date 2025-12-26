@@ -161,7 +161,7 @@ def _create_class_config[T](
 
   # Create the model dynamically - pyright can't infer the type here
   config_cls = cast(
-    "Any",
+    type[MakeableModel[T]],
     create_model(
       f"{cls.__name__}Config",
       __base__=MakeableModel[cls],  # type: ignore[valid-type]
@@ -318,7 +318,7 @@ def _create_function_config(
 
   # Create the model dynamically - pyright can't infer the type here
   config_cls = cast(
-    "Any",
+    type[MakeableModel[Callable[..., Any]]],
     create_model(
       config_name,
       __base__=MakeableModel[return_type],  # type: ignore[valid-type]
