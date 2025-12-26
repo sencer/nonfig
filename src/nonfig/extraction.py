@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 import dataclasses
 import functools
 import inspect
@@ -16,7 +16,7 @@ from typing import (
 )
 
 from annotated_types import BaseMetadata, Ge, Gt, Le, Lt, MaxLen, MinLen, MultipleOf
-from pydantic import Field
+from pydantic import Field  # pyright: ignore[reportUnknownVariableType]
 from pydantic.fields import FieldInfo
 
 from nonfig.constraints import PatternConstraint, validate_constraint_conflicts
@@ -40,6 +40,8 @@ _config_creation_stack: ContextVar[list[str] | None] = ContextVar(
 class ConfigCreationContext:
   """Context manager for tracking config creation depth and detecting cycles."""
 
+  __slots__ = ("config_name", "context_var", "param_name", "token")
+
   def __init__(
     self,
     config_name: str,
@@ -49,7 +51,7 @@ class ConfigCreationContext:
     self.config_name = config_name
     self.context_var = context_var
     self.param_name = param_name
-    self.token = None
+    self.token: Token[list[str] | None] | None = None
 
   def __enter__(self) -> None:
     stack = self.context_var.get() or []

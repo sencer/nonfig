@@ -2,12 +2,12 @@
 
 import os
 import time
-from typing import cast, Any
 
 # Disable debug logging for benchmarks
 os.environ["LOGURU_LEVEL"] = "WARNING"
 
 from dataclasses import dataclass
+
 from nonfig import DEFAULT, configurable
 from nonfig.typedefs import Hyper
 
@@ -44,7 +44,9 @@ def run_benchmark(iterations: int = 100_000):
   config = ConfigurableClass.Config(x=10, y=0.5)
   outer_cfg = Outer.Config(inner=Inner.Config(x=10))
 
-  print(f"ConfigurableClass is leaf: {getattr(ConfigurableClass.Config, '_is_always_leaf', False)}")
+  print(
+    f"ConfigurableClass is leaf: {getattr(ConfigurableClass.Config, '_is_always_leaf', False)}"
+  )
   print(f"Outer is leaf: {getattr(Outer.Config, '_is_always_leaf', False)}")
   print(f"Inner is leaf: {getattr(Inner.Config, '_is_always_leaf', False)}")
 
@@ -103,8 +105,12 @@ def run_benchmark(iterations: int = 100_000):
   print("-" * 43)
 
   overhead = reused_time - raw_time
-  print(f"\nOverhead of Reused Config vs Raw: {overhead:8.3f}μs ({reused_time/raw_time:.1f}x)")
-  print(f"Overhead of fast_make() vs Raw:   {fast_make_time-raw_time:8.3f}μs ({fast_make_time/raw_time:.1f}x)")
+  print(
+    f"\nOverhead of Reused Config vs Raw: {overhead:8.3f}μs ({reused_time / raw_time:.1f}x)"
+  )
+  print(
+    f"Overhead of fast_make() vs Raw:   {fast_make_time - raw_time:8.3f}μs ({fast_make_time / raw_time:.1f}x)"
+  )
 
 
 if __name__ == "__main__":

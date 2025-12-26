@@ -460,6 +460,7 @@ def test_model_config_parameter_raises_error():
       def __init__(self, model_config: Hyper[int] = 1):
         pass
 
+
 @configurable
 @dataclass
 class FastModel:
@@ -487,4 +488,3 @@ def test_fast_make():
   assert isinstance(nested, NestedFast)
   assert isinstance(nested.inner, FastModel)
   assert nested.inner.lr == 0.1
-

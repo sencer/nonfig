@@ -17,7 +17,7 @@ Example:
 """
 
 import re
-from typing import Any
+from typing import Any, Literal, cast, get_args, get_origin
 
 from annotated_types import (
   Ge as _Ge,
@@ -52,7 +52,7 @@ class InvalidPatternError(ValueError):
 
 def _check_numeric(value: Any, name: str) -> None:
   """Validate that a constraint value is numeric."""
-  if not isinstance(value, (int, float)):
+  if not isinstance(value, int | float):
     raise TypeError(f"{name} requires a numeric value, got {type(value).__name__}")
 
 
@@ -200,10 +200,15 @@ class MultipleOf:
 class PatternConstraint:
   """Represents a compiled regex pattern constraint."""
 
-  __slots__ = ("pattern",)
+  __slots__ = ("compiled",)
 
-  def __init__(self, pattern: str) -> None:
-    self.pattern = pattern
+  def __init__(self, compiled: re.Pattern[str]) -> None:
+    self.compiled = compiled
+
+  @property
+  def pattern(self) -> str:
+    """Return the original pattern string."""
+    return self.compiled.pattern
 
 
 class Pattern:
@@ -220,28 +225,23 @@ class Pattern:
 
   def __class_getitem__(cls, pattern: Any) -> PatternConstraint:
     """Support Pattern[r'^[a-z]+$'] syntax."""
-    # Handle Literal types (e.g., Pattern[Literal["..."]])
-    from typing import get_args, get_origin
-
-    try:
-      from typing import Literal
-    except ImportError:
-      pass
-    else:
-      if get_origin(pattern) is Literal:
-        args = get_args(pattern)
-        if args and isinstance(args[0], str):
-          pattern = args[0]
+    # Handle Literal types at runtime (e.g., Pattern[Literal["..."]])
+    # Needed because annotations like Hyper[str, Pattern[Literal["..."]]] pass
+    # the Literal type object to __class_getitem__ at runtime
+    if get_origin(pattern) is Literal:
+      args = get_args(pattern)
+      if args and isinstance(args[0], str):
+        pattern = args[0]
 
     if not isinstance(pattern, str):
       raise TypeError(f"Pattern expects a string, got {type(pattern).__name__}")
 
-    # Validate regex at decoration time
+    # Validate and compile regex at decoration time
     try:
-      re.compile(pattern)
+      compiled = cast("re.Pattern[str]", re.compile(pattern))  # pyright: ignore[reportUnknownMemberType]
     except re.error as e:
       raise InvalidPatternError(f"Invalid regex pattern: {e}") from e
-    return PatternConstraint(pattern)
+    return PatternConstraint(compiled)
 
 
 def validate_constraint_conflicts(

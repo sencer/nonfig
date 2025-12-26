@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from types import UnionType
 from typing import Any, cast, get_args, get_origin, override
 
@@ -206,28 +206,23 @@ def recursive_make(value: Any) -> Any:
     return res_make
 
   # Import aliases for runtime checks to avoid "isinstance arg 2 must be a type"
-  from collections.abc import Mapping as MappingABC
-  from collections.abc import Sequence as SequenceABC
+  from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
 
   # Recursively handle sequences (list, tuple, set, etc.)
   # Use unique names to avoid basedpyright redeclaration errors
   v_type = type(value)  # type: ignore[reportUnknownVariableType]
-  
+
   # Concrete types first for performance
   if v_type is list:
     res_list: Any = [recurse(item) for item in cast("list[Any]", value)]
     return res_list
 
   if v_type is dict:
-    res_dict: Any = {
-      k: recurse(v) for k, v in cast("dict[Any, Any]", value).items()
-    }
+    res_dict: Any = {k: recurse(v) for k, v in cast("dict[Any, Any]", value).items()}
     return res_dict
 
   if v_type is tuple:
-    res_tuple: Any = tuple(
-      recurse(item) for item in cast("tuple[Any, ...]", value)
-    )
+    res_tuple: Any = tuple(recurse(item) for item in cast("tuple[Any, ...]", value))
     return res_tuple
 
   if v_type is set:
@@ -235,9 +230,7 @@ def recursive_make(value: Any) -> Any:
     return res_set
 
   if v_type is frozenset:
-    res_fset: Any = frozenset(
-      recurse(item) for item in cast("frozenset[Any]", value)
-    )
+    res_fset: Any = frozenset(recurse(item) for item in cast("frozenset[Any]", value))
     return res_fset
 
   # Fallback for generic Sequence (excluding str/bytes)
