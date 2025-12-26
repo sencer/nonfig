@@ -333,17 +333,13 @@ def _extract_configurable_aliases(tree: ast.Module) -> set[str]:
   aliases = {"configurable"}
 
   for node in tree.body:
-    if isinstance(node, ast.ImportFrom):
-      # from nonfig import configurable [as cfg]
-      if node.module == "nonfig":
-        for name in node.names:
-          if name.name == "configurable":
-            aliases.add(name.asname or name.name)
-      # from nonfig.generation import configurable [as cfg]
-      elif node.module == "nonfig.generation":
-        for name in node.names:
-          if name.name == "configurable":
-            aliases.add(name.asname or name.name)
+    if isinstance(node, ast.ImportFrom) and node.module in {
+      "nonfig",
+      "nonfig.generation",
+    }:
+      for name in node.names:
+        if name.name == "configurable":
+          aliases.add(name.asname or name.name)
 
   return aliases
 

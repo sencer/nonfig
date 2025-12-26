@@ -841,7 +841,8 @@ def generate_stubs_for_directory(directory: Path, recursive: bool = True) -> lis
 
   pattern = "**/*.py" if recursive else "*.py"
   for py_file in directory.glob(pattern):
-    if py_file.name.startswith("_"):
+    # Skip private modules but not dunder files like __init__.py
+    if py_file.name.startswith("_") and not py_file.name.startswith("__"):
       continue
     stub_path = generate_stub_for_file(py_file)
     if stub_path:

@@ -118,7 +118,9 @@ def configurable[T](
     return _configurable_class(target)  # pyright: ignore[reportUnknownVariableType]
   if callable(target):
     return _configurable_function(target)
-  raise TypeError(f"configurable requires a class or function, got {type(target)}")
+  raise TypeError(
+    f"@configurable requires a class or function, got {type(target).__name__}: {target!r}"
+  )
 
 
 def _configurable_class[T](cls: type[T]) -> type[T]:
@@ -161,7 +163,7 @@ def _create_class_config[T](
 
   # Create the model dynamically - pyright can't infer the type here
   config_cls = cast(
-    type[MakeableModel[T]],
+    "type[MakeableModel[T]]",
     create_model(
       f"{cls.__name__}Config",
       __base__=MakeableModel[cls],  # type: ignore[valid-type]
@@ -176,20 +178,20 @@ def _create_class_config[T](
   # Pre-calculate which fields could be nested
   maybe_nested = calculate_class_make_fields(config_cls)
   is_leaf = not maybe_nested
-  config_cls._maybe_nested_fields = maybe_nested
-  config_cls._is_always_leaf = is_leaf
+  config_cls._maybe_nested_fields = maybe_nested  # pyright: ignore[reportAttributeAccessIssue]
+  config_cls._is_always_leaf = is_leaf  # pyright: ignore[reportAttributeAccessIssue]
 
   # Add the _make_impl method
-  config_cls._make_impl = _create_class_make_impl(
+  config_cls._make_impl = _create_class_make_impl(  # pyright: ignore[reportAttributeAccessIssue,reportPrivateUsage]
     cls, is_leaf=is_leaf, maybe_nested=maybe_nested
   )
 
   # Add fast_make static method for high-performance direct creation
-  config_cls.fast_make = _create_class_fast_make(
+  config_cls.fast_make = _create_class_fast_make(  # pyright: ignore[reportAttributeAccessIssue]
     cls, is_leaf=is_leaf, maybe_nested=maybe_nested
   )
 
-  return cast("type[MakeableModel[T]]", config_cls)
+  return config_cls
 
 
 def _create_class_fast_make[T](
@@ -318,7 +320,7 @@ def _create_function_config(
 
   # Create the model dynamically - pyright can't infer the type here
   config_cls = cast(
-    type[MakeableModel[Callable[..., Any]]],
+    "type[MakeableModel[Callable[..., Any]]]",
     create_model(
       config_name,
       __base__=MakeableModel[return_type],  # type: ignore[valid-type]
@@ -333,20 +335,20 @@ def _create_function_config(
   # Pre-calculate which fields could be nested
   maybe_nested = calculate_class_make_fields(config_cls)
   is_leaf = not maybe_nested
-  config_cls._maybe_nested_fields = maybe_nested
-  config_cls._is_always_leaf = is_leaf
+  config_cls._maybe_nested_fields = maybe_nested  # pyright: ignore[reportAttributeAccessIssue]
+  config_cls._is_always_leaf = is_leaf  # pyright: ignore[reportAttributeAccessIssue]
 
   # Add the _make_impl method
-  config_cls._make_impl = _create_function_make_impl(
+  config_cls._make_impl = _create_function_make_impl(  # pyright: ignore[reportAttributeAccessIssue,reportPrivateUsage]
     func, is_leaf=is_leaf, maybe_nested=maybe_nested
   )
 
   # Add fast_make static method
-  config_cls.fast_make = _create_function_fast_make(
+  config_cls.fast_make = _create_function_fast_make(  # pyright: ignore[reportAttributeAccessIssue]
     func, is_leaf=is_leaf, maybe_nested=maybe_nested
   )
 
-  return cast("type[MakeableModel[Callable[..., Any]]]", config_cls)
+  return config_cls
 
 
 def _create_function_fast_make(
