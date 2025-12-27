@@ -45,10 +45,17 @@ def _to_pascal_case(name: str) -> str:
 
   Examples:
     my_func -> MyFunc
-    myFunc -> Myfunc
-    my_function_name -> MyFunctionName
+    _private -> _Private
+    __dunder -> __Dunder
   """
-  return "".join(word.capitalize() for word in name.split("_"))
+  # Preserve leading underscores
+  stripped = name.lstrip("_")
+  leading_underscores = "_" * (len(name) - len(stripped))
+
+  # PascalCase the rest
+  pascal = "".join(word.capitalize() for word in stripped.split("_"))
+
+  return leading_underscores + pascal
 
 
 # Note on Overlapping Overloads:

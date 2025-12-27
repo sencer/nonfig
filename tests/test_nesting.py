@@ -743,3 +743,127 @@ def test_config_serialization() -> None:
   result1: float = fn1(data=test_data)
   result2: float = fn2(data=test_data)
   assert result1 == result2
+
+
+# ============= New Set/Tuple/FrozenSet tests for coverage =============
+
+
+# Test with tuple[Layer, ...]
+@configurable
+@dataclass
+class NetworkWithTuple:
+  layers: tuple[Layer, ...] = DEFAULT
+
+  def __call__(self, data: float) -> float:
+    for layer in self.layers:
+      data = layer(data)
+    return data
+
+
+# Test with set[Layer] - Note: Layer must be hashable. Dataclass with eq=True (default) and frozen=False is NOT hashable.
+# But MakeableModel sets frozen=True in model_config.
+# Layer is @dataclass. To be hashable it needs (frozen=True) OR explicit __hash__.
+# But @configurable wraps it.
+# We will use a FrozenLayer for set tests.
+
+
+@configurable
+@dataclass(frozen=True)
+class FrozenLayer:
+  scale: float = 1.0
+
+  def __call__(self, data: float) -> float:
+    return data * self.scale
+
+
+@configurable
+@dataclass
+class NetworkWithSet:
+  layers: set[FrozenLayer] = DEFAULT
+
+  def __call__(self, data: float) -> float:
+    # order is undefined
+    val = data
+    for layer in self.layers:
+      val = layer(val)
+    return val
+
+
+@configurable
+@dataclass
+class NetworkWithFrozenSet:
+  layers: frozenset[FrozenLayer] = DEFAULT
+
+  def __call__(self, data: float) -> float:
+    val = data
+    for layer in self.layers:
+      val = layer(val)
+    return val
+
+
+def test_tuple_with_explicit_configs() -> None:
+  """Explicit tuple of configs works."""
+  config = NetworkWithTuple.Config(
+    layers=(Layer.Config(scale=2.0), Layer.Config(scale=4.0))
+  )
+  network = config.make()
+  assert isinstance(network.layers, tuple)
+  assert len(network.layers) == 2
+  assert isinstance(network.layers[0], Layer)
+  assert network(10.0) == 80.0  # 10 * 2 * 4
+
+
+def test_set_with_explicit_configs() -> None:
+  """Explicit set of configs works."""
+  # FrozenLayer is needed for set
+  c1 = FrozenLayer.Config(scale=2.0)
+  c2 = FrozenLayer.Config(scale=3.0)
+
+  config = NetworkWithSet.Config(layers={c1, c2})
+  network = config.make()
+
+  assert isinstance(network.layers, set)
+  assert len(network.layers) == 2
+  # Check content
+  scales = {layer.scale for layer in network.layers}
+  assert scales == {2.0, 3.0}
+
+
+def test_frozenset_with_explicit_configs() -> None:
+  """Explicit frozenset of configs works."""
+  c1 = FrozenLayer.Config(scale=5.0)
+
+  config = NetworkWithFrozenSet.Config(layers=frozenset([c1]))
+  network = config.make()
+
+  assert isinstance(network.layers, frozenset)
+  assert len(network.layers) == 1
+  assert next(iter(network.layers)).scale == 5.0
+
+
+# ============= Class as Value Test =============
+
+
+@configurable
+class Strategy:
+  pass
+
+
+@configurable
+class Context:
+  # Default value is the CLASS itself
+  strategy_cls: type[Strategy] = Strategy
+
+
+def test_class_as_default_value() -> None:
+  """Verify that generic classes passed as values are handled correctly (passed through)."""
+  config = Context.Config()
+  model = config.make()
+
+  # Should preserve the class object
+  assert model.strategy_cls is Strategy
+
+  # Even if we pass it explicitly
+  config2 = Context.Config(strategy_cls=Strategy)
+  model2 = config2.make()
+  assert model2.strategy_cls is Strategy

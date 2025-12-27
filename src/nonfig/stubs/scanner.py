@@ -8,7 +8,7 @@ from pathlib import Path
 
 from nonfig.constraints import validate_constraint_conflicts
 
-__all__ = ["ConfigurableInfo", "HyperParam", "scan_module"]
+__all__ = ["ConfigurableInfo", "HyperParam", "extract_primitive_aliases", "scan_module"]
 
 
 @dataclass
@@ -344,12 +344,83 @@ def _extract_configurable_aliases(tree: ast.Module) -> set[str]:
   return aliases
 
 
-def scan_module(path: Path) -> list[ConfigurableInfo]:
-  """Scan a Python module for @configurable decorated items."""
+def extract_primitive_aliases(tree: ast.Module) -> set[str]:
+  """Identify type aliases to primitive types or containers.
+
+  Example:
+      Vector = list[float]  -> 'Vector' is an alias
+      UserID = int          -> 'UserID' is an alias
+  """
+  aliases: set[str] = set()
+
+  # Primitive types and container names we recognize
+  # Note: generator.py has _PRIMITIVE_TYPES and _CONTAINER_PREFIXES
+  # We duplicate a minimal set here for the scanner
+  primitives = {
+    "int",
+    "float",
+    "str",
+    "bool",
+    "None",
+    "bytes",
+    "complex",
+    "Any",
+    "list",
+    "dict",
+    "set",
+    "tuple",
+    "frozenset",
+    "Sequence",
+    "Mapping",
+    "Iterable",
+    "Collection",
+    "Optional",
+    "Union",
+    "Callable",
+  }
+
+  for node in tree.body:
+    if isinstance(node, ast.Assign) and len(node.targets) == 1:
+      target = node.targets[0]
+      if isinstance(target, ast.Name):
+        value = node.value
+
+        is_alias = False
+
+        # Check simple assignment: Alias = type
+        if isinstance(value, ast.Name):
+          if value.id in primitives:
+            is_alias = True
+
+        # Check subscript: Alias = list[...]
+        elif (
+          isinstance(value, ast.Subscript)
+          and isinstance(value.value, ast.Name)
+          and value.value.id in primitives
+        ):
+          is_alias = True
+
+        if is_alias:
+          aliases.add(target.id)
+
+    # TODO: Handle Annotated aliases if needed
+
+  return aliases
+
+
+def scan_module(path: Path) -> tuple[list[ConfigurableInfo], set[str]]:
+  """
+  Scan a Python module for @configurable decorated items and type aliases.
+
+  Returns:
+      Tuple of (list of ConfigurableInfo, set of alias names)
+  """
   source = path.read_text(encoding="utf-8")
   tree = ast.parse(source)
 
   configurable_aliases = _extract_configurable_aliases(tree)
+  type_aliases = extract_primitive_aliases(tree)
+
   results: list[ConfigurableInfo] = []
 
   for node in ast.walk(tree):
@@ -362,4 +433,4 @@ def scan_module(path: Path) -> list[ConfigurableInfo]:
       if info:
         results.append(info)
 
-  return results
+  return results, type_aliases
