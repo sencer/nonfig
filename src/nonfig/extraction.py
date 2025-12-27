@@ -27,7 +27,9 @@ __all__ = [
   "extract_function_hyper_params",
   "get_public_fields",
   "is_mapping_origin",
+  "is_mapping_origin",
   "is_sequence_origin",
+  "is_set_origin",
   "transform_type_for_nesting",
 ]
 
@@ -143,6 +145,17 @@ def is_sequence_origin(origin: Any) -> bool:
   return issubclass(origin, Sequence)
 
 
+def is_set_origin(origin: Any) -> bool:
+  """Check if origin is a set-like type.
+
+  Args:
+    origin: Result of get_origin(type_ann).
+  """
+  if not isinstance(origin, type):
+    return False
+  return issubclass(origin, (set, frozenset))
+
+
 def is_mapping_origin(origin: Any) -> bool:
   """Check if origin is a mapping-like type.
 
@@ -179,12 +192,18 @@ def transform_type_for_nesting(type_ann: Any) -> Any:
         return list[transformed_inner]
       if origin is tuple:
         return tuple[transformed_inner, ...]
-      if origin is set:
-        return set[transformed_inner]
-      if origin is frozenset:
-        return frozenset[transformed_inner]
       # For abstract types (Sequence, MutableSequence), use list
       return list[transformed_inner]
+    return type_ann
+
+  if is_set_origin(origin):
+    args = get_args(type_ann)
+    if len(args) >= 1:
+      transformed_inner = transform_type_for_nesting(args[0])
+      if origin is frozenset:
+        return frozenset[transformed_inner]
+      # set, MutableSet, or abstract
+      return set[transformed_inner]
     return type_ann
 
   if is_mapping_origin(origin):
@@ -324,6 +343,12 @@ def create_field_info(
         return (transformed_type, Field(default_factory=origin, **constraint_kwargs))
       # Fallback for abstract types (Mapping, MutableMapping)
       return (transformed_type, Field(default_factory=dict, **constraint_kwargs))
+
+    if is_set_origin(origin):
+      if origin is frozenset:
+        return (transformed_type, Field(default_factory=frozenset, **constraint_kwargs))
+      # set or abstract
+      return (transformed_type, Field(default_factory=set, **constraint_kwargs))
 
     # DEFAULT used with non-Config type - this is an error
     type_name = getattr(field_type, "__name__", str(field_type))

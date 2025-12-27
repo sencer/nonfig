@@ -99,7 +99,7 @@ def test_unwrap_hyper():
 
 
 def test_scan_module(temp_source_file: Path):
-  infos = scan_module(temp_source_file)
+  infos, _ = scan_module(temp_source_file)
   # Should find both the function and the class
   assert len(infos) == 2
 
@@ -127,7 +127,7 @@ def test_generate_config_class():
     call_params=[("data", "list", None)],
     return_type="list[float]",
   )
-  code = _generate_config_class(info)
+  code = _generate_config_class(info, set())
   assert "class Config(_NCMakeableModel" in code
   assert "p1: int" in code
   assert "def __init__(self, *, p1: int = ...) -> None: ..." in code
@@ -140,7 +140,7 @@ def test_generate_class_stub():
     params=[HyperParam("window", "int", "10")],
     return_type="MyClass",
   )
-  code = _generate_class_stub(info)
+  code = _generate_class_stub(info, set())
   assert "class MyClass:" in code
   assert "class Config(_NCMakeableModel[MyClass]):" in code
   assert "window: int" in code
@@ -154,7 +154,7 @@ def test_generate_function_stub():
     call_params=[("data", "list", None)],
     return_type="float",
   )
-  code = _generate_function_stub(info)
+  code = _generate_function_stub(info, set())
   assert "class _my_func_Bound(Protocol):" in code
   assert "class _my_func_Config(_NCMakeableModel[_my_func_Bound]):" in code
   assert "class my_func:" in code
@@ -170,7 +170,7 @@ def test_generate_function_stub_properties_readonly():
     call_params=[("data", "list", None)],
     return_type="float",
   )
-  code = _generate_function_stub(info)
+  code = _generate_function_stub(info, set())
 
   # Should use @property and def, not simple annotation
   assert "@property" in code
@@ -182,8 +182,8 @@ def test_generate_function_stub_properties_readonly():
 
 
 def test_generate_stub_content(temp_source_file: Path):
-  infos = scan_module(temp_source_file)
-  content = generate_stub_content(infos, temp_source_file)
+  infos, aliases = scan_module(temp_source_file)
+  content = generate_stub_content(infos, temp_source_file, aliases)
   assert (
     "class UsingConfig(_NCMakeableModel" not in content
   )  # Config classes generated with _Config prefix
@@ -233,7 +233,7 @@ def test_scan_module_with_dataclass(tmp_path: Path):
     """)
   )
 
-  infos = scan_module(dataclass_file)
+  infos, _ = scan_module(dataclass_file)
   assert len(infos) == 1
 
   class_info = infos[0]
@@ -470,8 +470,8 @@ def test_default_sentinel_in_stub_generation(tmp_path: Path):
   )
 
   # Generate stub content
-  infos = scan_module(source_file)
-  stub_content = generate_stub_content(infos, source_file)
+  infos, aliases = scan_module(source_file)
+  stub_content = generate_stub_content(infos, source_file, aliases)
 
   # Verify DEFAULT is imported
   assert "DEFAULT" in stub_content
@@ -510,7 +510,7 @@ def test_scan_module_accepts_valid_constraints(tmp_path: Path):
     """)
   )
 
-  functions = scan_module(good_file)
+  functions, _ = scan_module(good_file)
   assert len(functions) == 1
   assert functions[0].name == "good_func"
 
@@ -545,7 +545,7 @@ def test_scan_module_with_methods(tmp_path: Path):
     """)
   )
 
-  functions = scan_module(methods_file)
+  functions, _ = scan_module(methods_file)
   # Should find all 3 methods
   assert len(functions) == 3
   names = {f.name for f in functions}
@@ -604,8 +604,8 @@ def test_nested_config_type_transformation(tmp_path: Path):
     """)
   )
 
-  infos = scan_module(source_file)
-  stub_content = generate_stub_content(infos, source_file)
+  infos, aliases = scan_module(source_file)
+  stub_content = generate_stub_content(infos, source_file, aliases)
 
   # The Config class's __init__ should use .Config types for nested configurables
   # This is critical for type-correct nested config instantiation
@@ -647,8 +647,8 @@ def test_required_nested_config_type_transformation(tmp_path: Path):
     """)
   )
 
-  infos = scan_module(source_file)
-  stub_content = generate_stub_content(infos, source_file)
+  infos, aliases = scan_module(source_file)
+  stub_content = generate_stub_content(infos, source_file, aliases)
 
   # Even without DEFAULT, non-primitive Hyper types should become .Config
   # because you always pass Config objects to Config.__init__
@@ -672,8 +672,8 @@ def test_stub_class_var_for_wrapper(tmp_path: Path):
     """)
   )
 
-  infos = scan_module(source_file)
-  content = generate_stub_content(infos, source_file)
+  infos, aliases = scan_module(source_file)
+  content = generate_stub_content(infos, source_file, aliases)
 
   # Must import ClassVar
   assert "from typing import ClassVar" in content
@@ -783,8 +783,8 @@ def test_generate_stub_content_copies_imports(tmp_path: Path):
     )
   )
 
-  functions = scan_module(source_file)
-  content = generate_stub_content(functions, source_file)
+  functions, aliases = scan_module(source_file)
+  content = generate_stub_content(functions, source_file, aliases)
 
   # Check that imports are present
   assert "import numpy as np" in content
@@ -824,8 +824,8 @@ class TestOverrideDecorator:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     assert "@override" in content
     assert "from typing import override" in content
@@ -848,8 +848,8 @@ class TestOverrideDecorator:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     assert "@override" in content
     # Check override appears before make
@@ -877,8 +877,8 @@ class TestImportFiltering:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     # These should NOT be in the stub (unused)
     assert "List" not in content
@@ -908,8 +908,8 @@ class TestImportFiltering:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     # These should be in the stub (used in return type)
     assert "import numpy as np" in content
@@ -933,8 +933,8 @@ class TestImportFiltering:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     # Callable should appear only once (not duplicated from TYPE_CHECKING)
     assert content.count("from collections.abc import Callable") == 1
@@ -953,8 +953,8 @@ class TestImportFiltering:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     # Should only have one nonfig import line
     assert content.count("from nonfig import") == 1
@@ -979,8 +979,8 @@ class TestPublicItemsInclusion:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     assert "def helper_func(x: int) -> int:" in content
     assert "..." in content  # Body should be ellipsis
@@ -1001,8 +1001,8 @@ class TestPublicItemsInclusion:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     assert "_private_helper" not in content
 
@@ -1024,8 +1024,8 @@ class TestPublicItemsInclusion:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     assert "class HelperClass:" in content
     assert "x: int" in content
@@ -1048,8 +1048,8 @@ class TestPublicItemsInclusion:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     assert "def main() -> None:" in content
 
@@ -1074,8 +1074,8 @@ class TestConfigFieldSkipping:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     # Should have class Config (our generated one)
     assert "class Config(_NCMakeableModel[MyClass]):" in content
@@ -1100,8 +1100,8 @@ class TestConfigFieldSkipping:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     # Should have x: int but NOT Config: ClassVar
     assert "x: int" in content
@@ -1128,8 +1128,8 @@ class TestConstantsAndTypeAliases:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     # Constants should use ellipsis, not actual values
     assert "WINDOW_SIZE: ..." in content
@@ -1156,8 +1156,8 @@ class TestConstantsAndTypeAliases:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     assert "MAX_SIZE: int = ..." in content
     assert "RATIO: float = ..." in content
@@ -1178,8 +1178,8 @@ class TestConstantsAndTypeAliases:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     # Type aliases should preserve the value (needed for type checking)
     assert "MyList = list[int]" in content
@@ -1201,8 +1201,8 @@ class TestConstantsAndTypeAliases:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     assert "_INTERNAL_VALUE" not in content
     assert "PUBLIC_VALUE" in content
@@ -1228,8 +1228,8 @@ class TestIfNameMainExcluded:
       """)
     )
 
-    infos = scan_module(source_file)
-    content = generate_stub_content(infos, source_file)
+    infos, aliases = scan_module(source_file)
+    content = generate_stub_content(infos, source_file, aliases)
 
     assert '__name__ == "__main__"' not in content
     assert "__name__" not in content or "def __" in content  # Allow dunder methods
@@ -1247,9 +1247,9 @@ def my_func(x: int = DEFAULT):
   p.write_text(source, encoding="utf-8")
 
   try:
-    results = scan_module(p)
-    assert len(results) == 1
-    info = results[0]
+    infos, _ = scan_module(p)
+    assert len(infos) == 1
+    info = infos[0]
     assert info.name == "my_func"
 
     # Should have found 'x' as a HyperParam because default is DEFAULT
@@ -1280,9 +1280,9 @@ def mixed(
   p.write_text(source, encoding="utf-8")
 
   try:
-    results = scan_module(p)
-    assert len(results) == 1
-    info = results[0]
+    infos, _ = scan_module(p)
+    assert len(infos) == 1
+    info = infos[0]
 
     # 'a' -> call param
     # 'b' -> hyper (implicit)

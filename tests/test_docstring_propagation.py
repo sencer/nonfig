@@ -82,8 +82,8 @@ def test_stub_docstring_function(tmp_path: Path):
     """)
   )
 
-  infos = scan_module(source_file)
-  content = generate_stub_content(infos, source_file)
+  infos, aliases = scan_module(source_file)
+  content = generate_stub_content(infos, source_file, aliases)
 
   # 1. Check Config class docstring
   assert "class _my_func_Config(_NCMakeableModel" in content
@@ -111,8 +111,8 @@ def test_stub_docstring_class(tmp_path: Path):
     """)
   )
 
-  infos = scan_module(source_file)
-  content = generate_stub_content(infos, source_file)
+  infos, aliases = scan_module(source_file)
+  content = generate_stub_content(infos, source_file, aliases)
 
   # 1. Check Config class docstring
   assert "class Config(_NCMakeableModel" in content
@@ -138,8 +138,8 @@ def test_stub_no_docstring(tmp_path: Path):
     """)
   )
 
-  infos = scan_module(source_file)
-  content = generate_stub_content(infos, source_file)
+  infos, aliases = scan_module(source_file)
+  content = generate_stub_content(infos, source_file, aliases)
 
   # Should still generate "Configuration class for..." header
   assert "Configuration class for no_doc." in content
@@ -160,8 +160,8 @@ def test_stub_docstring_with_annotated_hyper(tmp_path: Path):
     """)
   )
 
-  infos = scan_module(source_file)
-  content = generate_stub_content(infos, source_file)
+  infos, aliases = scan_module(source_file)
+  content = generate_stub_content(infos, source_file, aliases)
 
   # Should find the parameter and include it in docstring
   assert "x (int)" in content
@@ -182,8 +182,8 @@ def test_stub_docstring_with_complex_types(tmp_path: Path):
     """)
   )
 
-  infos = scan_module(source_file)
-  content = generate_stub_content(infos, source_file)
+  infos, aliases = scan_module(source_file)
+  content = generate_stub_content(infos, source_file, aliases)
 
   # Primitive transformation might simplify this or keep it as is.
   # We want to ensure it doesn't crash and output looks reasonable.

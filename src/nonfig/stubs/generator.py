@@ -56,35 +56,19 @@ def _format_docstring(
 
 
 def _generate_params_doc_section(
-  hyper_params: list[HyperParam],
-  call_params: list[tuple[str, str, str | None]] | None = None,
-) -> str:
-  """Generate documentation for parameters.
-
-  Args:
-      hyper_params: list of hyper parameters
-      call_params: optional list of call parameters (name, type, default)
-  """
+  params: list[HyperParam],
+  _indent: int = 4,
+  aliases: set[str] | None = None,
+) -> str | None:
+  """Generate documentation for parameters."""
+  if aliases is None:
+    aliases = set()
   lines: list[str] = []
 
-  # If we have both call params and hyper params, distinguish them
-  if call_params:
-    lines.append("Call Arguments:")
-    for name, type_ann, _ in call_params:
-      lines.append(f"    {name} ({type_ann})")
-
-    if hyper_params:
-      lines.append("")
-      lines.append("Hyperparameters:")
-      for param in hyper_params:
-        config_type = _transform_to_config_type(param.type_annotation)
-        lines.append(f"    {param.name} ({config_type})")
-
-  elif hyper_params:
-    # Only hyper params - just use "Configuration" or "Parameters"
+  if params:
     lines.append("Configuration:")
-    for param in hyper_params:
-      config_type = _transform_to_config_type(param.type_annotation)
+    for param in params:
+      config_type = _transform_to_config_type(param.type_annotation, aliases)
       lines.append(f"    {param.name} ({config_type})")
 
   return "\n".join(lines)
@@ -268,16 +252,19 @@ def _is_primitive_or_container(type_str: str) -> bool:
   return any(type_lower.startswith(prefix.lower()) for prefix in _CONTAINER_PREFIXES)
 
 
-def _should_transform_to_config(type_str: str) -> bool:
+def _should_transform_to_config(type_str: str, aliases: set[str]) -> bool:
   """Determine if a Hyper type should be transformed to .Config.
 
   Non-primitive types in Hyper[] must be configurable classes, so they
   should use .Config in the Config class's __init__ signature.
   """
+
+  if type_str in aliases:
+    return False
   return not _is_primitive_or_container(type_str)
 
 
-def _transform_to_config_type(type_str: str) -> str:
+def _transform_to_config_type(type_str: str, aliases: set[str] | None = None) -> str:
   """Transform a type to its .Config variant.
 
   For Config class __init__ parameters, nested configurable types should
@@ -294,22 +281,31 @@ def _transform_to_config_type(type_str: str) -> str:
   if type_str.endswith(".Type"):
     type_str = type_str.removesuffix(".Type")
 
-  if _should_transform_to_config(type_str):
+  if aliases is None:
+    aliases = set()
+
+  if _should_transform_to_config(type_str, aliases):
     # Allow passing a TypedDict for nested configs
     return f"{type_str}.Config | {type_str}.ConfigDict"
   return type_str
 
 
 def _generate_config_dict(
-  info: ConfigurableInfo, indent: int = 4, name: str = "ConfigDict"
+  info: ConfigurableInfo,
+  indent: int = 4,
+  name: str = "ConfigDict",
+  aliases: set[str] | None = None,
 ) -> str:
   """Generate the ConfigDict TypedDict."""
+  if aliases is None:
+    aliases = set()
+
   lines: list[str] = []
   prefix = " " * indent
   lines.append(f"{prefix}class {name}(TypedDict, total=False):")
 
   # Generate docstring for ConfigDict
-  doc_section = _generate_params_doc_section(info.params)
+  doc_section = _generate_params_doc_section(info.params, aliases=aliases)
   if doc_section:
     lines.append(
       _format_docstring(
@@ -323,13 +319,13 @@ def _generate_config_dict(
     lines.append(f"{prefix}    pass")
   else:
     for param in info.params:
-      config_type = _transform_to_config_type(param.type_annotation)
+      config_type = _transform_to_config_type(param.type_annotation, aliases)
       lines.append(f"{prefix}    {param.name}: {config_type}")
 
   return "\n".join(lines)
 
 
-def _generate_config_class(info: ConfigurableInfo) -> str:
+def _generate_config_class(info: ConfigurableInfo, aliases: set[str]) -> str:
   """Generate the Config class stub."""
   lines: list[str] = []
 
@@ -346,7 +342,7 @@ def _generate_config_class(info: ConfigurableInfo) -> str:
   lines.append(f"    class Config(_NCMakeableModel[{make_return}]):")
 
   # Generate docstring for Config class: params + original docstring
-  doc_section = _generate_params_doc_section(info.params)
+  doc_section = _generate_params_doc_section(info.params, aliases=aliases)
 
   # Prepare the description part: "Configuration class for X.\n\nOriginal docstring"
   description = f"Configuration class for {info.name}."
@@ -362,13 +358,13 @@ def _generate_config_class(info: ConfigurableInfo) -> str:
   else:
     # Field declarations - transform non-primitive types to .Config
     for param in info.params:
-      config_type = _transform_to_config_type(param.type_annotation)
+      config_type = _transform_to_config_type(param.type_annotation, aliases)
       lines.append(f"        {param.name}: {config_type}")
 
     # __init__ signature - transform non-primitive types to .Config
     init_params: list[str] = []
     for param in info.params:
-      config_type = _transform_to_config_type(param.type_annotation)
+      config_type = _transform_to_config_type(param.type_annotation, aliases)
       default_str = _format_default(param.default_value)
       init_params.append(f"{param.name}: {config_type}{default_str}")
 
@@ -390,17 +386,17 @@ def _generate_config_class(info: ConfigurableInfo) -> str:
   return "\n".join(lines)
 
 
-def _generate_class_stub(info: ConfigurableInfo) -> str:
+def _generate_class_stub(info: ConfigurableInfo, aliases: set[str]) -> str:
   """Generate stub for a @configurable decorated class."""
   lines: list[str] = []
 
   lines.append(f"class {info.name}:")
 
-  doc_section = _generate_params_doc_section(info.params)
+  doc_section = _generate_params_doc_section(info.params, aliases=aliases)
   extra = [doc_section] if doc_section else None
   lines.append(_format_docstring(info.docstring, extra, indent=4))
-  lines.append(_generate_config_dict(info))
-  lines.append(_generate_config_class(info))
+  lines.append(_generate_config_dict(info, aliases=aliases))
+  lines.append(_generate_config_class(info, aliases))
 
   # Instance attribute declarations (for dataclasses)
   if info.params:
@@ -421,7 +417,7 @@ def _generate_class_stub(info: ConfigurableInfo) -> str:
   return "\n".join(lines)
 
 
-def _generate_function_stub(info: ConfigurableInfo) -> str:  # noqa: PLR0915
+def _generate_function_stub(info: ConfigurableInfo, aliases: set[str]) -> str:  # noqa: PLR0915
   """Generate stub for a @configurable decorated function."""
   lines: list[str] = []
 
@@ -446,13 +442,15 @@ def _generate_function_stub(info: ConfigurableInfo) -> str:  # noqa: PLR0915
 
   # Generate the ConfigDict
   config_dict_name = f"_{info.name}_ConfigDict"
-  lines.append(_generate_config_dict(info, indent=0, name=config_dict_name))
+  lines.append(
+    _generate_config_dict(info, indent=0, name=config_dict_name, aliases=aliases)
+  )
   lines.append("")
 
   # Generate Config class
   lines.append(f"class _{info.name}_Config(_NCMakeableModel[_{info.name}_Bound]):")
 
-  doc_section = _generate_params_doc_section(info.params)
+  doc_section = _generate_params_doc_section(info.params, aliases=aliases)
   description = f"Configuration class for {info.name}."
   if info.docstring:
     description += f"\n\n{info.docstring}"
@@ -465,13 +463,13 @@ def _generate_function_stub(info: ConfigurableInfo) -> str:  # noqa: PLR0915
   else:
     for param in info.params:
       # Config fields
-      config_type = _transform_to_config_type(param.type_annotation)
+      config_type = _transform_to_config_type(param.type_annotation, aliases)
       lines.append(f"    {param.name}: {config_type}")
 
     # __init__
     init_params: list[str] = []
     for param in info.params:
-      config_type = _transform_to_config_type(param.type_annotation)
+      config_type = _transform_to_config_type(param.type_annotation, aliases)
       default_str = _format_default(param.default_value)
       init_params.append(f"{param.name}: {config_type}{default_str}")
 
@@ -542,13 +540,18 @@ def _extract_imports(tree: ast.Module) -> tuple[list[str], list[str]]:
 
 
 def _extract_public_items(
-  tree: ast.Module, configurable_names: set[str]
+  tree: ast.Module,
+  configurable_names: set[str],
+  aliases: set[str] | None = None,
 ) -> tuple[list[str], list[str], list[str]]:
   """Extract all public (non-configurable) items from source.
 
   Returns:
-    Tuple of (class_stubs, function_stubs, constant_stubs)
+      (class_stubs, function_stubs, constant_stubs)
   """
+  if aliases is None:
+    aliases = set()
+
   class_stubs: list[str] = []
   function_stubs: list[str] = []
   constant_stubs: list[str] = []
@@ -626,6 +629,7 @@ def _extract_public_items(
         name = node.target.id
         type_str = ast.unparse(node.annotation)
         if node.value is not None:
+          # Always use ... for annotated constants to avoid value dependencies
           constant_stubs.append(f"{name}: {type_str} = ...")
         else:
           constant_stubs.append(f"{name}: {type_str}")
@@ -634,15 +638,20 @@ def _extract_public_items(
       # Simple assignments (constants/type aliases)
       for target in node.targets:
         if isinstance(target, ast.Name) and not target.id.startswith("_"):
-          # Type aliases like: MyType = list[int] - keep the value for type aliases
-          # but use ... for regular constants
+          # Check if we know this is a type alias
+          is_alias = target.id in aliases
           value_str = ast.unparse(node.value)
-          # Heuristic: if RHS looks like a type (contains brackets or is a name),
-          # it's likely a type alias - keep the value
-          if "[" in value_str or value_str[0].isupper():
+
+          if is_alias:
+            constant_stubs.append(f"{target.id} = {value_str}")
+          elif "[" in value_str or (
+            value_str
+            and value_str[0].isupper()
+            and not value_str.startswith(('"', "'"))
+          ):
+            # Fallback heuristic: exclude string literals starting with quote
             constant_stubs.append(f"{target.id} = {value_str}")
           else:
-            # Regular constant - just declare the name
             constant_stubs.append(f"{target.id}: ...")
           break
 
@@ -651,14 +660,16 @@ def _extract_public_items(
   return class_stubs, function_stubs, constant_stubs
 
 
-def _generate_configurable_stubs(infos: list[ConfigurableInfo]) -> list[str]:
-  """Generate stubs for @configurable decorated items."""
+def _generate_configurable_stubs(
+  infos: list[ConfigurableInfo], aliases: set[str]
+) -> list[str]:
+
   stubs: list[str] = []
   for info in infos:
     if info.is_class:
-      stubs.append(_generate_class_stub(info))
+      stubs.append(_generate_class_stub(info, aliases))
     else:
-      stubs.append(_generate_function_stub(info))
+      stubs.append(_generate_function_stub(info, aliases))
   return stubs
 
 
@@ -670,13 +681,12 @@ def _assemble_stub_content(
   configurable_stubs: list[str],
 ) -> str:
   """Assemble the final stub file content."""
-  lines: list[str] = [
-    '"""Auto-generated type stubs for @configurable decorators.',
-    "",
-    "Do not edit manually - regenerate with: nonfig-stubgen <path>",
-    '"""',
-    "",
-  ]
+  lines: list[str] = []
+  lines.append('"""Auto-generated type stubs for @configurable decorators.')
+  lines.append("")
+  lines.append("Do not edit manually - regenerate with: nonfig-stubgen <path>")
+  lines.append('"""')
+  lines.append("")
 
   lines.extend(import_lines)
   lines.append("")
@@ -772,20 +782,26 @@ def _build_import_section(
   return lines
 
 
-def generate_stub_content(infos: list[ConfigurableInfo], source_path: Path) -> str:
+def generate_stub_content(
+  infos: list[ConfigurableInfo],
+  source_path: Path,
+  aliases: set[str] | None = None,
+) -> str:
   """Generate complete stub file content."""
+  if aliases is None:
+    aliases = set()
+
   source = source_path.read_text(encoding="utf-8")
   tree = ast.parse(source)
 
-  configurable_names = {info.name for info in infos}
   public_classes, public_funcs, public_constants = _extract_public_items(
-    tree, configurable_names
+    tree, {info.name for info in infos}, aliases
   )
 
   if not infos and not public_classes and not public_funcs and not public_constants:
     return ""
 
-  configurable_stubs = _generate_configurable_stubs(infos)
+  configurable_stubs = _generate_configurable_stubs(infos, aliases)
 
   # Combine all stubs to collect used names
   all_stubs = "\n\n".join(
@@ -814,11 +830,11 @@ def generate_stub_for_file(path: Path) -> Path | None:
   Returns:
       Path to generated stub file, or None if no configurables found
   """
-  infos = scan_module(path)
+  infos, aliases = scan_module(path)
   if not infos:
     return None
 
-  content = generate_stub_content(infos, path)
+  content = generate_stub_content(infos, path, aliases)
   if not content:
     return None
 
