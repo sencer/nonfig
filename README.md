@@ -255,6 +255,26 @@ Model.Config.model_validate_json(json_string)
 - **Stub generation**: Use `nonfig-stubgen src/` or `nonfig-stubgen "src/**/*.py"` for perfect IDE support in libraries. Supports glob patterns.
 - **Thread safe**: Concurrent config creation and usage is fully supported.
 
+## Best Practices
+
+### Use Keyword-Only Parameters for Hypers
+
+When defining configurable functions, place hyperparameters after `*` to make them keyword-only:
+
+```python
+# ✅ Recommended: keyword-only hypers
+@configurable
+def train(data, *, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01):
+    ...
+
+# ⚠️ Avoid: positional hypers can cause argument conflicts
+@configurable  
+def train(data, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01):
+    ...
+```
+
+This prevents potential conflicts when calling the bound function with positional arguments.
+
 ## Comparison
 
 | Feature | nonfig | gin-config | hydra | tyro |
