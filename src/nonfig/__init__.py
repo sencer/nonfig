@@ -4,7 +4,7 @@ __version__ = "0.1.0"
 
 from nonfig.constraints import Ge, Gt, Le, Lt, MaxLen, MinLen, MultipleOf, Pattern
 from nonfig.generation import configurable
-from nonfig.models import BoundFunction, MakeableModel
+from nonfig.models import BoundFunction, ConfigValidationError, MakeableModel
 from nonfig.typedefs import DEFAULT, Hyper
 
 # Note: Configurable is a type-only Protocol for static analysis.
@@ -15,6 +15,7 @@ from nonfig.typedefs import DEFAULT, Hyper
 __all__ = [
   "DEFAULT",
   "BoundFunction",
+  "ConfigValidationError",
   "Ge",
   "Gt",
   "Hyper",
