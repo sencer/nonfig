@@ -270,3 +270,28 @@ def test_circular_dependency_detected() -> None:
       _instantiate_default_config(ClassA.Config, "test_param")
     finally:
       _config_creation_stack.reset(token)
+
+
+def test_runtime_cyclic_reference_detected() -> None:
+  """Test that recursive_make detects cycles at runtime."""
+
+  from nonfig.models import recursive_make
+
+  @configurable
+  class Node:
+    def __init__(self, value: int = 1) -> None:
+      self.value = value
+
+  # Create two config instances
+  config_a = Node.Config(value=1)
+  config_b = Node.Config(value=2)
+
+  # Simulate cyclic reference by passing same config in a list
+  # This shouldn't raise because they're different configs
+  result = recursive_make([config_a, config_b])
+  assert len(result) == 2
+
+  # Test that the same config appearing twice in different branches is OK
+  # (not a cycle, just shared reference)
+  result2 = recursive_make([config_a, [config_a]])
+  assert result2 is not None

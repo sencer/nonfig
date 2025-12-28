@@ -186,24 +186,43 @@ def is_nested_type(value: Any) -> bool:
   return bool(callable(value) and hasattr(cast("Any", value), "Config"))
 
 
-def recursive_make(value: Any) -> Any:
+def recursive_make(value: Any, visited: set[int] | None = None) -> Any:
   """
   Recursively make nested config objects.
 
   If value is a MakeableModel, call make() on it.
   If value is a list/dict, recursively process elements.
-  """
-  # Recursively make nested config objects.
-  recurse = recursive_make
 
+  Args:
+    value: The value to recursively process.
+    visited: Set of object IDs already visited (for cycle detection).
+
+  Raises:
+    RecursionError: If a circular reference is detected.
+  """
   # Fast path for common types
   if value is None or isinstance(value, int | float | str | bool):
     return value
 
-  # Make MakeableModel instances
+  # Initialize visited set on first call
+  if visited is None:
+    visited = set()
+
+  # Make MakeableModel instances with cycle detection
+  # We track "in_progress" objects in the current recursion path only.
+  # Once make() returns, we remove from tracking (allowing shared refs in different branches)
   if isinstance(value, MakeableModel):
-    res_make: Any = cast("MakeableModel[Any]", value).make()
-    return res_make
+    obj_id = id(cast("Any", value))
+    if obj_id in visited:
+      type_name: str = cast("Any", value).__class__.__name__
+      raise RecursionError(f"Circular reference detected in config: {type_name}")
+    visited.add(obj_id)
+    try:
+      res_make: Any = cast("MakeableModel[Any]", value).make()
+      return res_make
+    finally:
+      # Remove from in-progress tracking to allow shared references
+      visited.discard(obj_id)
 
   # Import aliases for runtime checks to avoid "isinstance arg 2 must be a type"
   from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
@@ -214,35 +233,43 @@ def recursive_make(value: Any) -> Any:
 
   # Concrete types first for performance
   if v_type is list:
-    res_list: Any = [recurse(item) for item in cast("list[Any]", value)]
+    res_list: Any = [recursive_make(item, visited) for item in cast("list[Any]", value)]
     return res_list
 
   if v_type is dict:
-    res_dict: Any = {k: recurse(v) for k, v in cast("dict[Any, Any]", value).items()}
+    res_dict: Any = {
+      k: recursive_make(v, visited) for k, v in cast("dict[Any, Any]", value).items()
+    }
     return res_dict
 
   if v_type is tuple:
-    res_tuple: Any = tuple(recurse(item) for item in cast("tuple[Any, ...]", value))
+    res_tuple: Any = tuple(
+      recursive_make(item, visited) for item in cast("tuple[Any, ...]", value)
+    )
     return res_tuple
 
   if v_type is set:
-    res_set: Any = {recurse(item) for item in cast("set[Any]", value)}
+    res_set: Any = {recursive_make(item, visited) for item in cast("set[Any]", value)}
     return res_set
 
   if v_type is frozenset:
-    res_fset: Any = frozenset(recurse(item) for item in cast("frozenset[Any]", value))
+    res_fset: Any = frozenset(
+      recursive_make(item, visited) for item in cast("frozenset[Any]", value)
+    )
     return res_fset
 
   # Fallback for generic Sequence (excluding str/bytes)
   # Done after concrete checks for performance (isinstance on ABC is slow)
   if isinstance(value, SequenceABC) and not isinstance(value, (str, bytes)):
     # Convert generic sequences to list to ensure we return a fully realized object
-    return [recurse(item) for item in cast("Sequence[Any]", value)]
+    return [recursive_make(item, visited) for item in cast("Sequence[Any]", value)]
 
   # Fallback for generic Mapping
   if isinstance(value, MappingABC):
     # Convert generic mappings to dict
-    return {k: recurse(v) for k, v in cast("Mapping[Any, Any]", value).items()}
+    return {
+      k: recursive_make(v, visited) for k, v in cast("Mapping[Any, Any]", value).items()
+    }
 
   return value
 
