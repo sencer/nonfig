@@ -150,3 +150,78 @@ class TestCliOverrideParsing:
 
     result = _parse_overrides(["url=http://example.com?a=b&c=d"])
     assert result == {"url": "http://example.com?a=b&c=d"}
+
+
+class TestNestedConfigCli:
+  """Tests for nested config handling in CLI."""
+
+  def test_nested_config_overrides(self) -> None:
+    """Nested config values are properly coerced."""
+    from nonfig import configurable, run_cli
+
+    @configurable
+    class Inner:
+      def __init__(self, x: int = 0) -> None:
+        self.x = x
+
+    @configurable
+    class Outer:
+      def __init__(
+        self, inner: Inner.Config | None = None, name: str = "default"
+      ) -> None:
+        self.inner = inner
+        self.name = name
+
+    # Test with simple override (name)
+    result = run_cli(Outer, ["name=custom"])
+    assert result.name == "custom"
+
+  def test_parse_optional_type(self) -> None:
+    """Parse value with Optional[int] type hint."""
+    from nonfig.cli.runner import _parse_value
+
+    # Test with optional int
+    result = _parse_value("42", int | None)
+    assert result == 42
+
+  def test_get_nested_config_cls_with_union(self) -> None:
+    """_get_nested_config_cls finds config in union types."""
+    from nonfig import configurable
+    from nonfig.cli.runner import _get_nested_config_cls
+
+    @configurable
+    class Sub:
+      def __init__(self, val: int = 0) -> None:
+        self.val = val
+
+    # Test with union containing Config
+    result = _get_nested_config_cls(Sub.Config | None)
+    assert result is Sub.Config
+
+    # Test with non-config type
+    result = _get_nested_config_cls(int | None)
+    assert result is None
+
+    # Test with direct config type
+    result = _get_nested_config_cls(Sub.Config)
+    assert result is Sub.Config
+
+  def test_apply_type_coercion_nested(self) -> None:
+    """_apply_type_coercion handles nested dicts."""
+    from nonfig import configurable
+    from nonfig.cli.runner import _apply_type_coercion
+
+    @configurable
+    class Sub:
+      def __init__(self, count: int = 0) -> None:
+        self.count = count
+
+    @configurable
+    class Parent:
+      def __init__(self, sub: Sub.Config | None = None) -> None:
+        self.sub = sub
+
+    # Test nested dict coercion
+    overrides = {"sub": {"count": "42"}}
+    result = _apply_type_coercion(overrides, Parent.Config)
+    assert result["sub"]["count"] == 42
