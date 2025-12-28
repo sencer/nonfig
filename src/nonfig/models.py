@@ -6,15 +6,41 @@ from collections.abc import Callable, Mapping, Sequence
 from types import UnionType
 from typing import Any, cast, get_args, get_origin, override
 
-from pydantic import BaseModel, ConfigDict, PrivateAttr
+from pydantic import BaseModel, ConfigDict, PrivateAttr, ValidationError
 
 __all__ = [
   "BoundFunction",
+  "ConfigValidationError",
   "DefaultSentinel",
   "HyperMarker",
   "MakeableModel",
   "is_makeable_model",
 ]
+
+
+class ConfigValidationError(Exception):
+  """Validation error with readable path for config errors.
+
+  Wraps Pydantic's ValidationError and formats location tuples into
+  human-readable dot-notation strings.
+
+  Example:
+    Instead of: "Input should be less than 1.0"
+    Shows: "Validation failed for PipelineConfig:\n  optimizer.lr: Input should be less than 1.0"
+  """
+
+  def __init__(self, original: ValidationError, config_name: str) -> None:
+    self.original = original
+    self.config_name = config_name
+    super().__init__(self._format_message())
+
+  def _format_message(self) -> str:
+    lines = [f"Validation failed for {self.config_name}:"]
+    for err in self.original.errors():
+      loc = ".".join(str(x) for x in err["loc"])
+      msg = err["msg"]
+      lines.append(f"  {loc}: {msg}")
+    return "\n".join(lines)
 
 
 class HyperMarker:
