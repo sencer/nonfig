@@ -95,6 +95,32 @@ def _to_pascal_case(name: str) -> str:
   return leading_underscores + pascal
 
 
+def _get_type_params(cls: type[Any]) -> tuple[Any, ...] | None:
+  """Get type parameters from a class (PEP 695 or Generic[T] style).
+
+  Args:
+    cls: The class to check for type parameters.
+
+  Returns:
+    Tuple of type parameters if class is generic, None otherwise.
+  """
+  from typing import Generic, get_args, get_origin
+
+  # PEP 695 style: class Foo[T]
+  type_params = getattr(cls, "__type_params__", None)
+  if type_params:
+    return type_params
+
+  # Generic[T] style: class Foo(Generic[T])
+  for base in getattr(cls, "__orig_bases__", ()):
+    if get_origin(base) is Generic:
+      args = get_args(base)
+      if args:
+        return args
+
+  return None
+
+
 # Note on Overlapping Overloads:
 # type[T] is a subtype of Callable[..., T] because classes are callable.
 # This causes pyright to warn about overlapping overloads. However, pyright
@@ -221,6 +247,12 @@ def _create_class_config[T](
   # Propagate docstring
   if cls.__doc__:
     config_cls.__doc__ = f"Configuration for {cls.__name__}.\n\n{cls.__doc__}"
+
+  # Propagate type parameters for generic classes (PEP 695 or Generic[T] style)
+  type_params = _get_type_params(cls)
+  if type_params:
+    # Set __type_params__ to make Config subscribable like the original class
+    config_cls.__type_params__ = type_params
 
   # Pre-calculate which fields could be nested
   maybe_nested = calculate_class_make_fields(config_cls)
