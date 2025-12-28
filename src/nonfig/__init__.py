@@ -2,6 +2,7 @@
 
 __version__ = "0.1.0"
 
+from nonfig.cli.runner import run_cli
 from nonfig.constraints import Ge, Gt, Le, Lt, MaxLen, MinLen, MultipleOf, Pattern
 from nonfig.generation import configurable
 from nonfig.loaders import load_json, load_toml, load_yaml
@@ -32,4 +33,5 @@ __all__ = [
   "load_json",
   "load_toml",
   "load_yaml",
+  "run_cli",
 ]
