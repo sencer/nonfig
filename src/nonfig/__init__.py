@@ -4,6 +4,7 @@ __version__ = "0.1.0"
 
 from nonfig.constraints import Ge, Gt, Le, Lt, MaxLen, MinLen, MultipleOf, Pattern
 from nonfig.generation import configurable
+from nonfig.loaders import load_json, load_toml, load_yaml
 from nonfig.models import BoundFunction, ConfigValidationError, MakeableModel
 from nonfig.typedefs import DEFAULT, Hyper
 
@@ -28,4 +29,7 @@ __all__ = [
   "Pattern",
   "__version__",
   "configurable",
+  "load_json",
+  "load_toml",
+  "load_yaml",
 ]
