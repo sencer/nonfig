@@ -212,6 +212,11 @@ def is_nested_type(value: Any) -> bool:
   return bool(callable(value) and hasattr(cast("Any", value), "Config"))
 
 
+def _needs_transform(item: Any) -> bool:
+  """Check if an item needs transformation during recursive_make."""
+  return isinstance(item, MakeableModel | list | dict | tuple | set | frozenset)
+
+
 def recursive_make(value: Any, visited: set[int] | None = None) -> Any:
   """
   Recursively make nested config objects.
@@ -259,43 +264,54 @@ def recursive_make(value: Any, visited: set[int] | None = None) -> Any:
 
   # Concrete types first for performance
   if v_type is list:
-    res_list: Any = [recursive_make(item, visited) for item in cast("list[Any]", value)]
-    return res_list
+    # Optimization: skip copy if no elements need transformation
+    if not any(_needs_transform(item) for item in cast("list[Any]", value)):
+      return value  # Return original, no copy needed
+    return [recursive_make(item, visited) for item in cast("list[Any]", value)]
 
   if v_type is dict:
-    res_dict: Any = {
+    # Optimization: skip copy if no values need transformation
+    if not any(_needs_transform(v) for v in cast("dict[Any, Any]", value).values()):
+      return value  # Return original, no copy needed
+    return {
       k: recursive_make(v, visited) for k, v in cast("dict[Any, Any]", value).items()
     }
-    return res_dict
 
   if v_type is tuple:
-    res_tuple: Any = tuple(
+    if not any(_needs_transform(item) for item in cast("tuple[Any, ...]", value)):
+      return value
+    return tuple(
       recursive_make(item, visited) for item in cast("tuple[Any, ...]", value)
     )
-    return res_tuple
 
   if v_type is set:
-    res_set: Any = {recursive_make(item, visited) for item in cast("set[Any]", value)}
-    return res_set
+    if not any(_needs_transform(item) for item in cast("set[Any]", value)):
+      return value
+    return {recursive_make(item, visited) for item in cast("set[Any]", value)}
 
   if v_type is frozenset:
-    res_fset: Any = frozenset(
+    if not any(_needs_transform(item) for item in cast("frozenset[Any]", value)):
+      return value
+    return frozenset(
       recursive_make(item, visited) for item in cast("frozenset[Any]", value)
     )
-    return res_fset
 
   # Fallback for generic Sequence (excluding str/bytes)
   # Done after concrete checks for performance (isinstance on ABC is slow)
   if isinstance(value, SequenceABC) and not isinstance(value, (str, bytes)):
-    # Convert generic sequences to list to ensure we return a fully realized object
-    return [recursive_make(item, visited) for item in cast("Sequence[Any]", value)]
+    seq_val = cast("Sequence[Any]", value)
+    if not any(_needs_transform(item) for item in seq_val):
+      return cast("Any", value)
+    result: Any = [recursive_make(item, visited) for item in seq_val]
+    return result
 
   # Fallback for generic Mapping
   if isinstance(value, MappingABC):
-    # Convert generic mappings to dict
-    return {
-      k: recursive_make(v, visited) for k, v in cast("Mapping[Any, Any]", value).items()
-    }
+    map_val = cast("Mapping[Any, Any]", value)
+    if not any(_needs_transform(v) for v in map_val.values()):
+      return cast("Any", value)
+    map_result: Any = {k: recursive_make(v, visited) for k, v in map_val.items()}
+    return map_result
 
   return value
 
