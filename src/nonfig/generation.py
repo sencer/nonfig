@@ -40,43 +40,6 @@ _decoration_lock = threading.Lock()
 _RESERVED_PYDANTIC_NAMES = {"model_config", "model_fields", "model_computed_fields"}
 
 
-def _inject_validation_hook[T](
-  config_cls: type[MakeableModel[T]],
-  target: type[T] | Callable[..., Any],
-) -> type[MakeableModel[T]]:
-  """Inject __config_validate__ hook from target into Config as model_validator.
-
-  If the target has a __config_validate__ class/static method, this wraps it
-  as a Pydantic model_validator and applies it to the Config class.
-
-  Args:
-    config_cls: The generated Config class to inject into.
-    target: The original class or function.
-
-  Returns:
-    The Config class (potentially modified with validation).
-  """
-  validate_hook = getattr(target, "__config_validate__", None)
-  if validate_hook is None:
-    return config_cls
-
-  from pydantic import model_validator
-
-  # Create a wrapper that invokes the hook
-  @model_validator(mode="after")
-  def _config_validate_wrapper(self: MakeableModel[T]) -> MakeableModel[T]:
-    return validate_hook(self)
-
-  # Inject the validator into the class
-  # We need to use object.__setattr__ because Config may be frozen
-  object.__setattr__(config_cls, "_config_validate", _config_validate_wrapper)
-
-  # Rebuild the model to pick up the new validator
-  config_cls.model_rebuild(force=True)
-
-  return config_cls
-
-
 def _to_pascal_case(name: str) -> str:
   """Convert snake_case or other naming to PascalCase.
 
@@ -211,11 +174,8 @@ def _configurable_class[T](cls: type[T]) -> type[T]:
     # Extract parameters
     params = extract_class_params(cls)
 
-    # Create the Config class
+    # Create the Config class (includes validation hook if present)
     config_cls = _create_class_config(cls, params)
-
-    # Inject __config_validate__ hook if present
-    config_cls = _inject_validation_hook(config_cls, cls)
 
     # Attach to the original class
     cls.Config = config_cls  # type: ignore[attr-defined]
@@ -234,12 +194,25 @@ def _create_class_config[T](
         f"Parameter '{name}' is reserved by Pydantic and cannot be used as a Config field"
       )
 
+  # Check for __config_validate__ hook and create validator if present
+  validators: dict[str, Any] = {}
+  validate_hook = getattr(cls, "__config_validate__", None)
+  if validate_hook is not None:
+    from pydantic import model_validator
+
+    @model_validator(mode="after")
+    def _config_validate(self: MakeableModel[T]) -> MakeableModel[T]:
+      return validate_hook(self)
+
+    validators["_config_validate"] = _config_validate
+
   # Create the model dynamically - pyright can't infer the type here
   config_cls = cast(
     "type[MakeableModel[T]]",
     create_model(
       f"{cls.__name__}Config",
       __base__=MakeableModel[cls],  # type: ignore[valid-type]
+      __validators__=validators,
       **params,  # type: ignore[arg-type]
     ),
   )
@@ -352,11 +325,8 @@ def _configurable_function(func: Callable[..., Any]) -> Callable[..., Any]:
   # Extract only Hyper parameters
   hyper_params = extract_function_hyper_params(func, skip_first=skip_first)
 
-  # Create Config class
+  # Create Config class (includes validation hook if present)
   config_cls = _create_function_config(func, hyper_params)
-
-  # Inject __config_validate__ hook if present
-  config_cls = _inject_validation_hook(config_cls, func)
 
   # Create Type proxy
   type_proxy = _create_type_proxy(func, config_cls)
