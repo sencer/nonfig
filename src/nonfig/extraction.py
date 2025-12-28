@@ -221,6 +221,21 @@ def transform_type_for_nesting(type_ann: Any) -> Any:
     inner = transform_type_for_nesting(args[0])
     return Annotated[inner, *args[1:]]
 
+  # Handle Union types (both `X | Y` syntax and `Union[X, Y]`)
+  # Import here to avoid circular imports at module level
+  from types import UnionType
+  from typing import Union
+
+  if origin is Union or isinstance(type_ann, UnionType):
+    args = get_args(type_ann)
+    transformed_args = tuple(transform_type_for_nesting(arg) for arg in args)
+    if transformed_args != args:
+      # Reconstruct union with transformed types using | operator
+      from functools import reduce
+
+      return reduce(lambda a, b: a | b, transformed_args)
+    return type_ann
+
   # Check if it's a configurable class
   if isinstance(type_ann, type):
     config_cls = getattr(type_ann, "Config", None)
