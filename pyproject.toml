@@ -24,6 +24,7 @@ dev = [
     "numpy>=2.3.5",
     "pandas>=2.3.3",
     "pandas-stubs>=2.0.0",
+    "pyyaml>=6.0.0",
 ]
 yaml = ["pyyaml>=6.0"]
 
