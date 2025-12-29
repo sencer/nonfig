@@ -10,6 +10,7 @@ import inspect
 from typing import (
   Annotated,
   Any,
+  cast,
   get_args,
   get_origin,
   get_type_hints,
@@ -463,13 +464,20 @@ def _extract_init_params(
   sig = inspect.signature(init_method)
   hints = get_type_hints_safe(init_method)
 
+  has_kwargs = False
+
   for name, param in sig.parameters.items():
     # Skip self
     if name == "self":
       continue
 
-    # Skip *args and **kwargs
-    if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+    # Skip *args
+    if param.kind == param.VAR_POSITIONAL:
+      continue
+
+    # Check for **kwargs
+    if param.kind == param.VAR_KEYWORD:
+      has_kwargs = True
       continue
 
     field_type = hints.get(name, param.annotation)
@@ -480,6 +488,31 @@ def _extract_init_params(
     default = param.default
 
     params[name] = create_field_info(name, inner_type, default, constraints, class_name)
+
+  # Smart Parameter Propagation: If **kwargs is present, inherit params from base Configs
+  if has_kwargs:
+    # Iterate MRO (skipping self)
+    for base in cls.mro()[1:]:
+      # Check if base has a valid Config
+      config_cls = getattr(base, "Config", None)
+      if (
+        isinstance(config_cls, type)
+        and issubclass(config_cls, MakeableModel)
+        and hasattr(cast("Any", config_cls), "model_fields")
+      ):
+        # Merge fields from base config
+        for field_name, field_info in config_cls.model_fields.items():
+          # Skip if already defined in subclass (override takes precedence)
+          if field_name in params:
+            continue
+
+          # Skip internal fields
+          if field_name.startswith("_"):
+            continue
+
+          # Add inherited field
+          # We use the annotation and FieldInfo directly from the base Config
+          params[field_name] = (field_info.annotation, field_info)
 
   return params
 
