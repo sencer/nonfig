@@ -56,18 +56,20 @@ def test_hyper_marker_check():
 
 def test_unwrap_hyper_logic():
   # Unwrap Hyper[int, Ge[1]]
-  inner, constraints = unwrap_hyper(Hyper[int, Ge[1]])
+  inner, constraints, is_leaf = unwrap_hyper(Hyper[int, Ge[1]])
   assert inner is int
   assert len(constraints) == 1
   assert isinstance(constraints[0], AnnotatedGe)
+  assert is_leaf is False
 
   # Unwrap plain type
-  inner, constraints = unwrap_hyper(int)
+  inner, constraints, is_leaf = unwrap_hyper(int)
   assert inner is int
   assert len(constraints) == 0
+  assert is_leaf is False
 
   # Unwrap Annotated but not Hyper
-  inner, constraints = unwrap_hyper(Annotated[int, Ge[1]])
+  inner, constraints, is_leaf = unwrap_hyper(Annotated[int, Ge[1]])
   # Note: extraction logic currently filters out HyperMarker.
   # If using unwrap_hyper on generic Annotated, it returns inner + constraints
   # as long as they are not HyperMarker.
@@ -77,6 +79,7 @@ def test_unwrap_hyper_logic():
   assert len(constraints) == 1
   # nonfig.Ge[...] produces an annotated_types.Ge instance
   assert isinstance(constraints[0], AnnotatedGe)
+  assert is_leaf is False
 
 
 """Test the new Hyper[T, Ge[2], Le[100]] syntax in type annotations."""

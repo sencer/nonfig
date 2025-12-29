@@ -18,6 +18,7 @@ class HyperParam:
   name: str
   type_annotation: str
   default_value: str | None = None
+  is_leaf: bool = False
 
 
 @dataclass
@@ -75,30 +76,74 @@ def _is_hyper_annotation(node: ast.expr) -> bool:
   return False
 
 
-def _unwrap_hyper(node: ast.expr) -> str:
-  """Extract the inner type from Hyper[T, ...] -> T."""
+def _is_leaf_marker(node: ast.expr) -> bool:
+  """Check if an annotation part is the Leaf marker or Leaf[T] subscript."""
+  if isinstance(node, ast.Name) and node.id == "Leaf":
+    return True
+  if isinstance(node, ast.Attribute) and node.attr == "Leaf":
+    return True
+  # Handle Leaf[T]
+  if isinstance(node, ast.Subscript):
+    if isinstance(node.value, ast.Name) and node.value.id == "Leaf":
+      return True
+    if isinstance(node.value, ast.Attribute) and node.value.attr == "Leaf":
+      return True
+  return False
+
+
+def _unwrap_hyper(node: ast.expr) -> tuple[str, bool]:
+  """Extract the inner type from Hyper[T, ...] -> (T, is_leaf)."""
   if isinstance(node, ast.Subscript):
     slice_node = node.slice
 
-    # Handle Annotated[T, ...] -> T
+    # Handle Annotated[T, ...]
     is_annotated = False
     if (isinstance(node.value, ast.Name) and node.value.id == "Annotated") or (
       isinstance(node.value, ast.Attribute) and node.value.attr == "Annotated"
     ):
       is_annotated = True
 
-    if is_annotated:
-      if isinstance(slice_node, ast.Tuple):
-        return _get_annotation_str(slice_node.elts[0])
-      return _get_annotation_str(slice_node)
+    # Handle Leaf[T]
+    is_leaf_subscript = False
+    if (isinstance(node.value, ast.Name) and node.value.id == "Leaf") or (
+      isinstance(node.value, ast.Attribute) and node.value.attr == "Leaf"
+    ):
+      is_leaf_subscript = True
 
     # Handle Hyper[...]
-    if isinstance(slice_node, ast.Tuple):
-      # Multiple args: Hyper[T, Ge[0], Le[100]]
-      return _get_annotation_str(slice_node.elts[0])
-    # Single arg: Hyper[T]
-    return _get_annotation_str(slice_node)
-  return _get_annotation_str(node)
+    is_hyper = False
+    if (isinstance(node.value, ast.Name) and node.value.id == "Hyper") or (
+      isinstance(node.value, ast.Attribute) and node.value.attr == "Hyper"
+    ):
+      is_hyper = True
+
+    if is_annotated:
+      if isinstance(slice_node, ast.Tuple):
+        inner_type_node = slice_node.elts[0]
+        # Check markers in this Annotated
+        is_leaf = any(_is_leaf_marker(elt) for elt in slice_node.elts[1:])
+        # Recursively unwrap inner
+        inner_type, inner_leaf = _unwrap_hyper(inner_type_node)
+        return inner_type, is_leaf or inner_leaf
+      # Single arg Annotated[T]
+      return _unwrap_hyper(slice_node)
+
+    if is_leaf_subscript:
+      # Leaf[T] -> unwrap T and set leaf=True
+      inner_type, _ = _unwrap_hyper(slice_node)
+      return inner_type, True
+
+    if is_hyper:
+      if isinstance(slice_node, ast.Tuple):
+        # Multiple args: Hyper[T, Ge[0], Le[100]]
+        inner_type_node = slice_node.elts[0]
+        is_leaf = any(_is_leaf_marker(elt) for elt in slice_node.elts[1:])
+        inner_type, inner_leaf = _unwrap_hyper(inner_type_node)
+        return inner_type, is_leaf or inner_leaf
+      # Single arg: Hyper[T]
+      return _unwrap_hyper(slice_node)
+
+  return _get_annotation_str(node), False
 
 
 def _extract_default(node: ast.expr | None) -> str | None:
@@ -219,10 +264,10 @@ def _scan_function(
       is_hyper = True
 
     if is_hyper:
-      inner_type = (
+      inner_type, is_leaf = (
         _unwrap_hyper(ann)
         if ann and _is_hyper_annotation(ann)
-        else _get_annotation_str(ann)
+        else (_get_annotation_str(ann), False)
       )
       if ann and _is_hyper_annotation(ann):
         _extract_constraints_from_hyper(ann, arg.arg)
@@ -232,6 +277,7 @@ def _scan_function(
           name=arg.arg,
           type_annotation=inner_type,
           default_value=_extract_default(default),
+          is_leaf=is_leaf,
         )
       )
     else:
@@ -276,16 +322,17 @@ def _scan_class(
       ann = item.annotation
       default = item.value
       if _is_hyper_annotation(ann):
-        inner_type = _unwrap_hyper(ann)
+        inner_type, is_leaf = _unwrap_hyper(ann)
         _extract_constraints_from_hyper(ann, item.target.id)
       else:
-        inner_type = _get_annotation_str(ann)
+        inner_type, is_leaf = _get_annotation_str(ann), False
 
       params.append(
         HyperParam(
           name=item.target.id,
           type_annotation=inner_type,
           default_value=_extract_default(default),
+          is_leaf=is_leaf,
         )
       )
 
@@ -306,16 +353,17 @@ def _scan_class(
         default_idx = i - defaults_offset
         default = item.args.defaults[default_idx] if default_idx >= 0 else None
         if ann and _is_hyper_annotation(ann):
-          inner_type = _unwrap_hyper(ann)
+          inner_type, is_leaf = _unwrap_hyper(ann)
           _extract_constraints_from_hyper(ann, arg.arg)
         else:
-          inner_type = _get_annotation_str(ann)
+          inner_type, is_leaf = _get_annotation_str(ann), False
 
         params.append(
           HyperParam(
             name=arg.arg,
             type_annotation=inner_type,
             default_value=_extract_default(default),
+            is_leaf=is_leaf,
           )
         )
 
@@ -379,7 +427,7 @@ def extract_primitive_aliases(tree: ast.Module) -> set[str]:
     "Callable",
   }
 
-  for node in tree.body:
+  for node in tree.body:  # noqa: PLR1702
     if isinstance(node, ast.Assign) and len(node.targets) == 1:
       target = node.targets[0]
       if isinstance(target, ast.Name):
@@ -399,6 +447,21 @@ def extract_primitive_aliases(tree: ast.Module) -> set[str]:
           and value.value.id in primitives
         ):
           is_alias = True
+
+        # Check Annotated[T, Leaf]
+        if (
+          isinstance(value, ast.Subscript)
+          and isinstance(value.value, ast.Name)
+          and value.value.id == "Annotated"
+        ):
+          if isinstance(value.slice, ast.Tuple):
+            # Annotated[T, Marker1, Marker2]
+            markers = value.slice.elts[1:]
+            if any(_is_leaf_marker(m) for m in markers):
+              is_alias = True
+          elif _is_leaf_marker(value.slice):
+            # Annotated[T, Leaf]
+            is_alias = True
 
         if is_alias:
           aliases.add(target.id)

@@ -94,8 +94,31 @@ def test_unwrap_hyper():
   func = tree.body[0]
   assert isinstance(func, ast.FunctionDef)
   arg = func.args.args[0]
-  inner = _unwrap_hyper(arg.annotation)
+  inner, is_leaf = _unwrap_hyper(arg.annotation)
   assert inner == "int"
+  assert is_leaf is False
+
+
+def test_leaf_marker():
+  """Test that Leaf marker is correctly detected."""
+  code = "def f(x: Hyper[int, Leaf]): pass"
+  tree = ast.parse(code)
+  func = tree.body[0]
+  assert isinstance(func, ast.FunctionDef)
+  arg = func.args.args[0]
+  inner, is_leaf = _unwrap_hyper(arg.annotation)
+  assert inner == "int"
+  assert is_leaf is True
+
+  # Also with Annotated
+  code = "def f(x: Annotated[int, Leaf]): pass"
+  tree = ast.parse(code)
+  func = tree.body[0]
+  assert isinstance(func, ast.FunctionDef)
+  arg = func.args.args[0]
+  inner, is_leaf = _unwrap_hyper(arg.annotation)
+  assert inner == "int"
+  assert is_leaf is True
 
 
 def test_scan_module(temp_source_file: Path):
@@ -732,20 +755,20 @@ def test_unwrap_hyper_annotated_edge_cases():
   """Test _unwrap_hyper with Annotated/Hyper variations."""
   # Hyper[T]
   node = ast.parse("Hyper[int]").body[0].value
-  assert _unwrap_hyper(node) == "int"  # type: ignore
+  assert _unwrap_hyper(node) == ("int", False)  # type: ignore
 
   # Annotated[T, Hyper]
   # Note: scanner logic checks for Hyper in Annotated args
   node = ast.parse("Annotated[int, Hyper]").body[0].value
-  assert _unwrap_hyper(node) == "int"  # type: ignore
+  assert _unwrap_hyper(node) == ("int", False)  # type: ignore
 
   # Hyper[T, Ge[1]]
   node = ast.parse("Hyper[int, Ge[1]]").body[0].value
-  assert _unwrap_hyper(node) == "int"  # type: ignore
+  assert _unwrap_hyper(node) == ("int", False)  # type: ignore
 
   # Fallback
   node = ast.parse("int").body[0].value
-  assert _unwrap_hyper(node) == "int"  # type: ignore
+  assert _unwrap_hyper(node) == ("int", False)  # type: ignore
 
 
 def test_extract_default_none():

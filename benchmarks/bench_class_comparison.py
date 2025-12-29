@@ -12,10 +12,10 @@ from nonfig import DEFAULT, configurable
 from nonfig.typedefs import Hyper
 
 
+@dataclass
 class RawClass:
-  def __init__(self, x: int = 10, y: float = 0.5):
-    self.x = x
-    self.y = y
+  x: int = 10
+  y: float = 0.5
 
 
 @configurable

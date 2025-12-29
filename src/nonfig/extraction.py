@@ -21,13 +21,12 @@ from pydantic import Field  # pyright: ignore[reportUnknownVariableType]
 from pydantic.fields import FieldInfo
 
 from nonfig.constraints import PatternConstraint, validate_constraint_conflicts
-from nonfig.models import DefaultSentinel, HyperMarker, MakeableModel
+from nonfig.models import DefaultSentinel, HyperMarker, LeafMarker, MakeableModel
 
 __all__ = [
   "extract_class_params",
   "extract_function_hyper_params",
   "get_public_fields",
-  "is_mapping_origin",
   "is_mapping_origin",
   "is_sequence_origin",
   "is_set_origin",
@@ -80,22 +79,41 @@ def has_hyper_marker(type_ann: Any) -> bool:
   return False
 
 
-def unwrap_hyper(type_ann: Any) -> tuple[Any, tuple[Any, ...]]:
+def unwrap_hyper(type_ann: Any) -> tuple[Any, tuple[Any, ...], bool]:
   """
   Unwrap a Hyper annotation to get the inner type and constraints.
 
-  Returns (inner_type, constraints_tuple)
+  Returns:
+    Tuple of (inner_type, constraints_tuple, is_leaf)
   """
   if get_origin(type_ann) is Annotated:
     args = get_args(type_ann)
     inner_type = args[0]
     metadata = args[1:]
-    # Filter out HyperMarker, keep constraints
-    constraints = tuple(
-      m for m in metadata if not (isinstance(m, type) and m is HyperMarker)
+
+    # Check for LeafMarker at this level
+    is_leaf = any(
+      isinstance(m, type) and issubclass(m, LeafMarker) for m in metadata
+    ) or any(isinstance(m, LeafMarker) for m in metadata)
+
+    # Filter out HyperMarker and LeafMarker from constraints
+    constraints = tuple(  # pyright: ignore[reportUnknownVariableType]
+      m
+      for m in metadata  # pyright: ignore[reportUnknownArgumentType]
+      if not (isinstance(m, type) and issubclass(m, (HyperMarker, LeafMarker)))
+      and not isinstance(m, LeafMarker)
     )
-    return inner_type, constraints
-  return type_ann, ()
+
+    # Recursively unwrap if inner is also Annotated
+    if get_origin(inner_type) is Annotated:
+      inner_inner, inner_constraints, inner_leaf = unwrap_hyper(inner_type)
+      return cast(
+        "tuple[Any, tuple[Any, ...], bool]",
+        (inner_inner, constraints + inner_constraints, is_leaf or inner_leaf),
+      )
+
+    return cast("tuple[Any, tuple[Any, ...], bool]", (inner_type, constraints, is_leaf))
+  return type_ann, (), False
 
 
 def extract_constraints(metadata: tuple[Any, ...]) -> dict[str, Any]:
@@ -169,13 +187,39 @@ def is_mapping_origin(origin: Any) -> bool:
   return issubclass(origin, Mapping)
 
 
-def transform_type_for_nesting(type_ann: Any) -> Any:
+def is_leaf_annotation(type_ann: Any) -> bool:
+  """Check if a type annotation has the LeafMarker."""
+  if get_origin(type_ann) is Annotated:
+    args = get_args(type_ann)
+    # Check current level
+    for arg in args[1:]:
+      # Check if it's the LeafMarker class itself, a subclass (like Leaf), or an instance
+      if (
+        arg is LeafMarker
+        or (isinstance(arg, type) and issubclass(arg, LeafMarker))
+        or isinstance(arg, LeafMarker)
+      ):
+        return True
+    # Check recursively
+    return is_leaf_annotation(args[0])
+  return False
+
+
+def transform_type_for_nesting(type_ann: Any, is_leaf: bool = False) -> Any:
   """
   Transform a type to allow nested configs.
 
   If the type is a configurable class, transforms T -> T | T.Config
   so the field can accept either an instance or a config.
+
+  Args:
+    type_ann: The type annotation to transform.
+    is_leaf: If True, skip transformation (used when Leaf[T] is detected).
   """
+  # If explicitly marked as Leaf, return as is
+  if is_leaf or is_leaf_annotation(type_ann):
+    return type_ann
+
   # Handle generic types recursively
   origin = get_origin(type_ann)
 
@@ -219,6 +263,7 @@ def transform_type_for_nesting(type_ann: Any) -> Any:
 
   if origin is Annotated:
     args = get_args(type_ann)
+    # The Leaf check at the start handles Annotated[T, Leaf]
     inner = transform_type_for_nesting(args[0])
     return Annotated[inner, *args[1:]]
 
@@ -310,8 +355,19 @@ def create_field_info(
   default_value: Any,
   constraints: tuple[Any, ...],
   func_name: str | None = None,
+  *,
+  is_leaf: bool = False,
 ) -> tuple[Any, FieldInfo]:
-  """Create a Pydantic FieldInfo from extracted parameter information."""
+  """Create a Pydantic FieldInfo from extracted parameter information.
+
+  Args:
+    param_name: Name of the parameter.
+    field_type: Type of the parameter.
+    default_value: Default value from signature.
+    constraints: Extracted constraints (Ge, Le, etc).
+    func_name: Optional name of the function for error reporting.
+    is_leaf: If True, force the field to be a leaf (skip transformation).
+  """
   # Check for existing FieldInfo in constraints (e.g., Hyper[int, Field(description=...)])
   existing_field_info = next(
     (item for item in constraints if isinstance(item, FieldInfo)),
@@ -325,7 +381,7 @@ def create_field_info(
   validate_constraint_conflicts(constraint_kwargs, param_name, func_name)
 
   # Transform type for nested configs
-  transformed_type = transform_type_for_nesting(field_type)
+  transformed_type = transform_type_for_nesting(field_type, is_leaf=is_leaf)
 
   # If there's an existing FieldInfo, use it directly
   if existing_field_info is not None:
@@ -399,12 +455,12 @@ def get_type_hints_safe(obj: Any) -> dict[str, Any]:
       if module is not None:
         globalns = vars(module)
 
-    # Add Hyper to namespace if needed
+    # Add Hyper and Leaf to namespace if needed
     ns = globalns or {}
-    if "Hyper" not in ns:
-      from nonfig.typedefs import Hyper
+    if "Hyper" not in ns or "Leaf" not in ns:
+      from nonfig.typedefs import Hyper, Leaf
 
-      ns = {**ns, "Hyper": Hyper}
+      ns = {**ns, "Hyper": Hyper, "Leaf": Leaf}
     return get_type_hints(obj, globalns=ns, include_extras=True)
   except Exception:  # noqa: BLE001
     # Fallback to annotations without resolution
@@ -436,7 +492,7 @@ def _extract_dataclass_params(
       continue
 
     field_type = hints.get(field.name, field.type)
-    inner_type, constraints = unwrap_hyper(field_type)
+    inner_type, constraints, is_leaf = unwrap_hyper(field_type)
 
     # Determine default value
     if field.default is not dataclasses.MISSING:
@@ -448,7 +504,7 @@ def _extract_dataclass_params(
       default = inspect.Parameter.empty
 
     params[field.name] = create_field_info(
-      field.name, inner_type, default, constraints, class_name
+      field.name, inner_type, default, constraints, class_name, is_leaf=is_leaf
     )
 
   return params
@@ -484,10 +540,12 @@ def _extract_init_params(
     if field_type is inspect.Parameter.empty:
       field_type = Any
 
-    inner_type, constraints = unwrap_hyper(field_type)
+    inner_type, constraints, is_leaf = unwrap_hyper(field_type)
     default = param.default
 
-    params[name] = create_field_info(name, inner_type, default, constraints, class_name)
+    params[name] = create_field_info(
+      name, inner_type, default, constraints, class_name, is_leaf=is_leaf
+    )
 
   # Smart Parameter Propagation: If **kwargs is present, inherit params from base Configs
   if has_kwargs:
@@ -562,10 +620,12 @@ def extract_function_hyper_params(
     if not is_hyper:
       continue
 
-    inner_type, constraints = unwrap_hyper(field_type)
+    inner_type, constraints, is_leaf = unwrap_hyper(field_type)
     default = param.default  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
 
-    params[name] = create_field_info(name, inner_type, default, constraints, func_name)
+    params[name] = create_field_info(
+      name, inner_type, default, constraints, func_name, is_leaf=is_leaf
+    )
 
   return params
 

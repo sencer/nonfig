@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal, assert_type
 
-from nonfig import DEFAULT, Ge, Hyper, Le, MakeableModel, configurable
+from nonfig import DEFAULT, Ge, Hyper, Le, Leaf, MakeableModel, configurable
 
 # --- Basic classes ---
 
@@ -91,9 +91,38 @@ class Constrained:
   value: Hyper[int, Ge[0], Le[100]] = 50
 
 
+# --- Leaf marker ---
+
+
+@configurable
+class LeafProcessor:
+  def __init__(self, model: Hyper[Leaf[Model]]) -> None:
+    self.model = model
+
+
 # =============================================================================
 # Tests
 # =============================================================================
+
+
+class TestLeafTyping:
+  def test_leaf_behaves_as_inner_type(self) -> None:
+    # model: Hyper[Leaf[Model]] -> static analysis should see just 'Model'
+    # because Leaf[T] = Annotated[T, LeafMarker]
+    config = LeafProcessor.Config(model=Model(x=5))
+    assert_type(config, MakeableModel[LeafProcessor])
+
+    # Accessing the field on the config
+    # In Pydantic models, Annotated metadata is stripped for the attribute type
+    # But wait, without stubs, we don't even have attribute access on Config
+    # unless we are using basedpyright which might see the create_model result?
+    # No, Configurable Protocol doesn't expose attributes on Config class.
+    pass
+
+  def test_leaf_instance_access(self) -> None:
+    proc = LeafProcessor(model=Model(x=10))
+    assert_type(proc.model, Model)
+    assert proc.model.x == 10
 
 
 class TestClassTyping:
