@@ -103,6 +103,7 @@ ignore = [
     "PLW3201", # __name__ and __wrapped__ ARE meaningful (functools protocol)
     "N802",    # Allow PascalCase property names like Config, Type (API design)
     "RUF043",  # Allow regex metacharacters in pytest match= (intentional)
+    "PLR2004", # Allow magic value comparisons (structural checks)
 ]
 
 # Complexity limits (anti-LLM-slop)
@@ -117,6 +118,11 @@ max-args = 6
 "__init__.py" = [
     "F401",    # Allow unused imports in __init__.py
 ]
+"src/nonfig/extraction.py" = ["BLE001"]
+"src/nonfig/models.py" = ["S101"]
+"src/nonfig/stubs/scanner.py" = ["PLR1702"]
+"src/nonfig/stubs/generator.py" = ["PLR0915"]
+"src/nonfig/generation.py" = ["B010"]
 "tests/**/*.py" = [
     "S101",    # Allow assert in tests
     "PLR2004", # Allow magic values in tests

@@ -1,4 +1,6 @@
-"""Base model classes for nonfig."""
+"Base model classes for nonfig."
+
+# pyright: reportUnknownVariableType=false
 
 from __future__ import annotations
 
@@ -92,7 +94,7 @@ class MakeableModel[R](BaseModel):
     """
     # Optimized access to private metadata to bypass Pydantic overhead
     private = cast("dict[str, Any]", self.__pydantic_private__)
-    assert private is not None  # noqa: S101
+    assert private is not None
 
     # Initialize metadata if not already done (once per instance)
     if not private["_make_fields"]:
@@ -270,7 +272,7 @@ def recursive_make(value: Any, visited: set[int] | None = None) -> Any:
 
   # Recursively handle sequences (list, tuple, set, etc.)
   # Use unique names to avoid basedpyright redeclaration errors
-  v_type = type(value)  # type: ignore[reportUnknownVariableType]
+  v_type = type(value)
 
   # Concrete types first for performance
   if v_type is list:

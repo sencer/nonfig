@@ -16,6 +16,8 @@ Example:
         return period * threshold
 """
 
+# pyright: reportUnknownMemberType=false
+
 import re
 from typing import Any, Literal, cast, get_args, get_origin
 
@@ -238,7 +240,7 @@ class Pattern:
 
     # Validate and compile regex at decoration time
     try:
-      compiled = cast("re.Pattern[str]", re.compile(pattern))  # pyright: ignore[reportUnknownMemberType]
+      compiled = cast("re.Pattern[str]", re.compile(pattern))
     except re.error as e:
       raise InvalidPatternError(f"Invalid regex pattern: {e}") from e
     return PatternConstraint(compiled)

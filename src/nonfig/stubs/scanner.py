@@ -197,7 +197,7 @@ def _extract_constraints_from_hyper(node: ast.expr, param_name: str) -> None:
     return
 
   slice_node = node.slice
-  if not isinstance(slice_node, ast.Tuple) or len(slice_node.elts) < 2:  # noqa: PLR2004
+  if not isinstance(slice_node, ast.Tuple) or len(slice_node.elts) < 2:
     return  # No constraints, just Hyper[T]
 
   constraints: dict[str, float | int] = {}
@@ -427,7 +427,7 @@ def extract_primitive_aliases(tree: ast.Module) -> set[str]:
     "Callable",
   }
 
-  for node in tree.body:  # noqa: PLR1702
+  for node in tree.body:
     if isinstance(node, ast.Assign) and len(node.targets) == 1:
       target = node.targets[0]
       if isinstance(target, ast.Name):

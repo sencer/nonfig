@@ -430,7 +430,7 @@ def _generate_class_stub(info: ConfigurableInfo, aliases: set[str]) -> str:
   return "\n".join(lines)
 
 
-def _generate_function_stub(info: ConfigurableInfo, aliases: set[str]) -> str:  # noqa: PLR0915
+def _generate_function_stub(info: ConfigurableInfo, aliases: set[str]) -> str:
   """Generate stub for a @configurable decorated function."""
   lines: list[str] = []
 
