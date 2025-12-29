@@ -59,6 +59,16 @@ class DefaultSentinel:
     return "DEFAULT"
 
 
+class LeafMarker:
+  """Sentinel to mark a type as a leaf (not configurable) for stub generation."""
+
+  __slots__ = ()
+
+  @override
+  def __repr__(self) -> str:
+    return "Leaf"
+
+
 class MakeableModel[R](BaseModel):
   """Base class for all Config models."""
 

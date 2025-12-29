@@ -13,7 +13,7 @@ reducing boilerplate and enforcing type safety and validation at definition time
 ## Quick Example
 
 ```python
-from nonfig import configurable, DEFAULT
+from nonfig import configurable, DEFAULT, Leaf
 
 @configurable
 class Optimizer:
@@ -23,16 +23,15 @@ class Optimizer:
 
 @configurable
 class Model:
-    def __init__(self, hidden_size: int = 128, optimizer: Optimizer = DEFAULT):
+    def __init__(
+        self, 
+        hidden_size: int = 128, 
+        optimizer: Optimizer = DEFAULT,
+        # Use Leaf[T] to accept an instance directly (no .Config transformation)
+        data_loader: Leaf[DataLoader] = DEFAULT 
+    ):
         self.hidden_size = hidden_size
         self.optimizer = optimizer
-
-# Create config, serialize, and instantiate
-config = Model.Config(hidden_size=256)
-json_str = config.model_dump_json()
-
-model = config.make()
-print(model.optimizer.lr)  # 0.01
 ```
 
 ## Installation
@@ -201,6 +200,26 @@ class OldStyle(Generic[T]):
     ...
 ```
 
+### Leaf Markers
+
+By default, any `@configurable` class used as a type hint is transformed into `T | T.Config`. If you want to force a parameter to accept only the raw instance (disabling nested configuration for that field), use `Leaf[T]`:
+
+```python
+from nonfig import configurable, Leaf
+
+@configurable
+class Processor:
+    def __init__(self, model: Leaf[MyModel]):
+        # 'model' must be a MyModel instance, not MyModel.Config
+        self.model = model
+```
+
+This is useful for passing pre-instantiated objects, heavy resources (like database connections), or when you want to strictly control the configuration hierarchy.
+
+- **Static Typing:** Type checkers see `Leaf[T]` as exactly `T`.
+- **Runtime:** Pydantic validates that the input is an instance of `T`.
+- **Stubs:** `nonfig-stubgen` preserves the raw type in the generated `.pyi` files.
+
 ## Performance
 
 | Pattern | Typical Latency* | Notes |
@@ -243,6 +262,7 @@ Model.Config.model_validate_json(json_string)
 - **Circular dependencies** in nested configs are detected at decoration time
 - **Cycle detection** in `recursive_make` prevents infinite loops at runtime
 - **Stub generation**: `nonfig-stubgen src/` for perfect IDE support
+- **Reserved names**: Descriptive errors when clashing with Pydantic or nonfig internals
 - **Thread safe**: Concurrent config creation fully supported
 
 ## Best Practices
@@ -319,6 +339,7 @@ If you *omit* `**kwargs`, `nonfig` assumes you are hiding the base parameters, a
 |:-------|:------------|
 | `configurable` | Decorator to make classes/functions configurable |
 | `Hyper[T, ...]` | Mark a parameter as a hyperparameter with constraints |
+| `Leaf[T]` | Mark a parameter as a leaf (no nested config transformation) |
 | `DEFAULT` | Sentinel for nested configs with default values |
 | `MakeableModel` | Base class for generated Config classes |
 | `BoundFunction` | Wrapper for functions with bound hyperparameters |
@@ -345,6 +366,7 @@ If you *omit* `**kwargs`, `nonfig` assumes you are hiding the base parameters, a
 | `load_json(path)` | Load dict from JSON file |
 | `load_toml(path)` | Load dict from TOML file |
 | `load_yaml(path)` | Load dict from YAML file (requires `pyyaml`) |
+| `nonfig-stubgen <path>` | CLI tool to generate .pyi stubs for IDE support |
 
 ## Comparison
 

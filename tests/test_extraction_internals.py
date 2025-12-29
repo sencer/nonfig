@@ -49,7 +49,7 @@ def test_nested_config_instantiation_failure() -> None:
       raise RuntimeError("Intentional failure")
 
   # Create a field with DEFAULT - this should fail because BrokenConfig raises
-  inner_type, constraints = unwrap_hyper(Annotated[BrokenConfig, HyperMarker])
+  inner_type, constraints, _ = unwrap_hyper(Annotated[BrokenConfig, HyperMarker])
 
   with pytest.raises(TypeError, match="Failed to instantiate"):
     create_field_info("param", inner_type, DEFAULT, constraints)
@@ -58,16 +58,18 @@ def test_nested_config_instantiation_failure() -> None:
 def test_unwrap_hyper() -> None:
   """Test unwrap_hyper function."""
   ann = Hyper[int]
-  inner, constraints = unwrap_hyper(ann)
+  inner, constraints, is_leaf = unwrap_hyper(ann)
   assert inner is int
   assert constraints == ()
+  assert is_leaf is False
 
   from nonfig import Ge, Le
 
   ann2 = Hyper[int, Ge[0], Le[100]]
-  inner2, constraints2 = unwrap_hyper(ann2)
+  inner2, constraints2, is_leaf2 = unwrap_hyper(ann2)
   assert inner2 is int
   assert len(constraints2) == 2
+  assert is_leaf2 is False
 
 
 def test_circular_dependency_detection_manual() -> None:

@@ -7,7 +7,7 @@ from nonfig.constraints import Ge, Gt, Le, Lt, MaxLen, MinLen, MultipleOf, Patte
 from nonfig.generation import configurable
 from nonfig.loaders import load_json, load_toml, load_yaml
 from nonfig.models import BoundFunction, ConfigValidationError, MakeableModel
-from nonfig.typedefs import DEFAULT, Hyper
+from nonfig.typedefs import DEFAULT, Hyper, Leaf
 
 # Note: Configurable is a type-only Protocol for static analysis.
 # Import it from nonfig.typedefs in TYPE_CHECKING blocks:
@@ -22,6 +22,7 @@ __all__ = [
   "Gt",
   "Hyper",
   "Le",
+  "Leaf",
   "Lt",
   "MakeableModel",
   "MaxLen",

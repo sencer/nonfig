@@ -68,7 +68,9 @@ def _generate_params_doc_section(
   if params:
     lines.append("Configuration:")
     for param in params:
-      config_type = _transform_to_config_type(param.type_annotation, aliases)
+      config_type = _transform_to_config_type(
+        param.type_annotation, aliases, is_leaf=param.is_leaf
+      )
       lines.append(f"    {param.name} ({config_type})")
 
   return "\n".join(lines)
@@ -264,7 +266,9 @@ def _should_transform_to_config(type_str: str, aliases: set[str]) -> bool:
   return not _is_primitive_or_container(type_str)
 
 
-def _transform_to_config_type(type_str: str, aliases: set[str] | None = None) -> str:
+def _transform_to_config_type(
+  type_str: str, aliases: set[str] | None = None, is_leaf: bool = False
+) -> str:
   """Transform a type to its .Config variant.
 
   For Config class __init__ parameters, nested configurable types should
@@ -277,6 +281,9 @@ def _transform_to_config_type(type_str: str, aliases: set[str] | None = None) ->
     list[float] -> list[float] (unchanged, container)
     cap.Type -> cap.Config (Type suffix removed)
   """
+  if is_leaf:
+    return type_str
+
   # Handle .Type suffix (e.g. cap.Type -> cap)
   if type_str.endswith(".Type"):
     type_str = type_str.removesuffix(".Type")
@@ -319,7 +326,9 @@ def _generate_config_dict(
     lines.append(f"{prefix}    pass")
   else:
     for param in info.params:
-      config_type = _transform_to_config_type(param.type_annotation, aliases)
+      config_type = _transform_to_config_type(
+        param.type_annotation, aliases, is_leaf=param.is_leaf
+      )
       lines.append(f"{prefix}    {param.name}: {config_type}")
 
   return "\n".join(lines)
@@ -358,13 +367,17 @@ def _generate_config_class(info: ConfigurableInfo, aliases: set[str]) -> str:
   else:
     # Field declarations - transform non-primitive types to .Config
     for param in info.params:
-      config_type = _transform_to_config_type(param.type_annotation, aliases)
+      config_type = _transform_to_config_type(
+        param.type_annotation, aliases, is_leaf=param.is_leaf
+      )
       lines.append(f"        {param.name}: {config_type}")
 
     # __init__ signature - transform non-primitive types to .Config
     init_params: list[str] = []
     for param in info.params:
-      config_type = _transform_to_config_type(param.type_annotation, aliases)
+      config_type = _transform_to_config_type(
+        param.type_annotation, aliases, is_leaf=param.is_leaf
+      )
       default_str = _format_default(param.default_value)
       init_params.append(f"{param.name}: {config_type}{default_str}")
 
@@ -463,13 +476,17 @@ def _generate_function_stub(info: ConfigurableInfo, aliases: set[str]) -> str:  
   else:
     for param in info.params:
       # Config fields
-      config_type = _transform_to_config_type(param.type_annotation, aliases)
+      config_type = _transform_to_config_type(
+        param.type_annotation, aliases, is_leaf=param.is_leaf
+      )
       lines.append(f"    {param.name}: {config_type}")
 
     # __init__
     init_params: list[str] = []
     for param in info.params:
-      config_type = _transform_to_config_type(param.type_annotation, aliases)
+      config_type = _transform_to_config_type(
+        param.type_annotation, aliases, is_leaf=param.is_leaf
+      )
       default_str = _format_default(param.default_value)
       init_params.append(f"{param.name}: {config_type}{default_str}")
 

@@ -109,6 +109,9 @@ ignore = [
 [tool.ruff.lint.mccabe]
 max-complexity = 10  # Maximum cyclomatic complexity
 
+[tool.ruff.lint.pylint]
+max-args = 6
+
 # Per-file ignores
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = [

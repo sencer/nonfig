@@ -5,13 +5,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated, Any, Never, Protocol
 
 if TYPE_CHECKING:
-  from nonfig.models import DefaultSentinel, HyperMarker
+  from nonfig.models import DefaultSentinel, HyperMarker, LeafMarker
 
 __all__ = [
   "DEFAULT",
   "Configurable",
   "ConfigurableFunc",
   "Hyper",
+  "Leaf",
 ]
 
 
@@ -19,10 +20,25 @@ if TYPE_CHECKING:
   # At type-checking time, DEFAULT should be assignable to any type
   # Using Never makes it a bottom type that's assignable to anything
   DEFAULT: Never
+  # Leaf[T] is just T with metadata
+  type Leaf[T] = Annotated[T, LeafMarker]
 else:
-  from nonfig.models import DefaultSentinel
+  from nonfig.models import DefaultSentinel, LeafMarker
 
   DEFAULT = DefaultSentinel()
+
+  class Leaf(LeafMarker):
+    """
+    Marker to prevent a type from being transformed into a nested config.
+
+    Usage:
+        x: Hyper[Leaf[MyConfig]]  # Use MyConfig instance directly, don't allow MyConfig.Config
+    """
+
+    __slots__ = ()
+
+    def __class_getitem__(cls, t: Any) -> Any:
+      return Annotated[t, cls]
 
 
 if TYPE_CHECKING:

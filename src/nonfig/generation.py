@@ -39,6 +39,15 @@ _decoration_lock = threading.Lock()
 # Reserved Pydantic field names that cannot be used as Config field names
 _RESERVED_PYDANTIC_NAMES = {"model_config", "model_fields", "model_computed_fields"}
 
+# Names reserved by nonfig on the Config class
+_NONFIG_RESERVED_NAMES = {
+  "make",
+  "fast_make",
+  "_make_impl",
+  "_is_always_leaf",
+  "_maybe_nested_fields",
+}
+
 
 def _to_pascal_case(name: str) -> str:
   """Convert snake_case or other naming to PascalCase.
@@ -223,11 +232,15 @@ def _create_class_config[T](
   cls: type[T], params: dict[str, tuple[Any, FieldInfo]]
 ) -> type[MakeableModel[T]]:
   """Create a Config class for a target class."""
-  # Check for reserved Pydantic field names
+  # Check for reserved names
   for name in params:
     if name in _RESERVED_PYDANTIC_NAMES:
       raise ValueError(
-        f"Parameter '{name}' is reserved by Pydantic and cannot be used as a Config field"
+        f"Parameter '{name}' is reserved by Pydantic and cannot be used as a Config field. Please rename this parameter in your __init__ or dataclass."
+      )
+    if name in _NONFIG_RESERVED_NAMES:
+      raise ValueError(
+        f"Parameter '{name}' is reserved by nonfig and cannot be used as a Config field. Please rename this parameter in your __init__ or dataclass."
       )
 
   # Check for __config_validate__ hook and create validator if present
@@ -393,11 +406,15 @@ def _create_function_config(
   params: dict[str, tuple[Any, FieldInfo]],
 ) -> type[MakeableModel[Callable[..., Any]]]:
   """Create a Config class for a function."""
-  # Check for reserved Pydantic field names
+  # Check for reserved names
   for name in params:
     if name in _RESERVED_PYDANTIC_NAMES:
       raise ValueError(
-        f"Parameter '{name}' is reserved by Pydantic and cannot be used as a Config field"
+        f"Parameter '{name}' is reserved by Pydantic and cannot be used as a Config field. Please rename this parameter in function '{func.__name__}'."
+      )
+    if name in _NONFIG_RESERVED_NAMES:
+      raise ValueError(
+        f"Parameter '{name}' is reserved by nonfig and cannot be used as a Config field. Please rename this parameter in function '{func.__name__}'."
       )
 
   # The return type is a callable that takes non-Hyper args
