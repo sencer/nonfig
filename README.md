@@ -10,99 +10,42 @@ Turn any class into a configurable, serializable, validated component—just add
 creation of reproducible machine learning experiments and configurable applications by
 reducing boilerplate and enforcing type safety and validation at definition time.
 
-## Before & After
-
-**Without nonfig** — manual config classes, validation, and factory methods:
-
-```python
-from dataclasses import dataclass
-
-# 1. Define the Config class (Boilerplate)
-@dataclass
-class OptimizerConfig:
-    learning_rate: float = 0.01
-    momentum: float = 0.9
-
-    # 2. Write a factory method to create the object
-    def make(self) -> "Optimizer":
-        return Optimizer(
-            learning_rate=self.learning_rate,
-            momentum=self.momentum
-        )
-
-# 3. Define the actual class
-class Optimizer:
-    def __init__(self, learning_rate: float, momentum: float):
-        self.learning_rate = learning_rate
-        self.momentum = momentum
-
-# 4. Repeat for every component...
-@dataclass
-class ModelConfig:
-    optimizer: OptimizerConfig
-    hidden_size: int = 128
-
-    def make(self) -> "Model":
-        return Model(
-            optimizer=self.optimizer.make(),
-            hidden_size=self.hidden_size
-        )
-
-class Model:
-    def __init__(self, optimizer: Optimizer, hidden_size: int):
-        self.optimizer = optimizer
-        self.hidden_size = hidden_size
-```
-
-**With nonfig** — automatic config generation with validation:
+## Quick Example
 
 ```python
 from nonfig import configurable, DEFAULT
 
 @configurable
 class Optimizer:
-    def __init__(self, learning_rate: float = 0.01, momentum: float = 0.9):
-        self.learning_rate = learning_rate
+    def __init__(self, lr: float = 0.01, momentum: float = 0.9):
+        self.lr = lr
         self.momentum = momentum
 
 @configurable
 class Model:
-    def __init__(
-        self,
-        hidden_size: int = 128,
-        dropout: float = 0.1,
-        optimizer: Optimizer = DEFAULT,  # Nested config with default
-    ):
+    def __init__(self, hidden_size: int = 128, optimizer: Optimizer = DEFAULT):
         self.hidden_size = hidden_size
-        self.dropout = dropout
         self.optimizer = optimizer
 
-# Create config
-config = Model.Config(hidden_size=256, dropout=0.2)
-
-# Serialize/deserialize
+# Create config, serialize, and instantiate
+config = Model.Config(hidden_size=256)
 json_str = config.model_dump_json()
-loaded = Model.Config.model_validate_json(json_str)
 
-# Instantiate
 model = config.make()
-# model.optimizer is now an instance of Optimizer
-print(model.optimizer.learning_rate)  # 0.01
+print(model.optimizer.lr)  # 0.01
 ```
-
-Fully type-safe out of the box—your IDE will autocomplete `.Config` parameters, validate
-them, and catch errors before runtime.
 
 ## Installation
 
 ```bash
 pip install nonfig
-# or: uv add nonfig
+# Optional YAML support:
+pip install nonfig[yaml]
 ```
 
-## Core Concepts
+## Features
 
-### Classes
+### Classes & Dataclasses
 
 The `@configurable` decorator generates a `.Config` class that captures parameters:
 
@@ -111,22 +54,19 @@ from nonfig import configurable
 
 @configurable
 class Optimizer:
-    def __init__(self, learning_rate: float = 0.01, momentum: float = 0.9):
-        self.learning_rate = learning_rate
+    def __init__(self, lr: float = 0.01, momentum: float = 0.9):
+        self.lr = lr
         self.momentum = momentum
 
 # Direct instantiation still works
-opt = Optimizer(learning_rate=0.001)
+opt = Optimizer(lr=0.001)
 
 # Or use Config for validation + serialization
-config = Optimizer.Config(learning_rate=0.001)
+config = Optimizer.Config(lr=0.001)
 opt = config.make()  # Returns Optimizer instance
 ```
 
-### Dataclasses
-
-Dataclasses work seamlessly. Due to how Python's type system handles decorator stacking,
-apply `@configurable` after defining the dataclass for full IDE support:
+For dataclasses, apply `@configurable` after `@dataclass` for full IDE support:
 
 ```python
 from dataclasses import dataclass
@@ -137,102 +77,151 @@ class Model:
     hidden_size: int = 128
     dropout: float = 0.1
 
-Model = configurable(Model)
-
-config = Model.Config(hidden_size=256)  # Full autocomplete!
-model = config.make()
+Model = configurable(Model)  # Full autocomplete!
 ```
 
-### Functions
+### Functions with Hyper
 
-For functions, `nonfig` identifies configurable parameters via the `Hyper[T]`
-annotation, or if the default value is `DEFAULT` or a nested configuration object.
-Parameters without these markers are treated as runtime-only arguments.
+For functions, use `Hyper[T]` to mark configurable parameters:
 
 ```python
 from nonfig import configurable, Hyper, Ge, Gt
 
 @configurable
 def train(
-    data: list[float],              # Runtime data (not a hyperparameter)
+    data: list[float],              # Runtime argument (not a hyperparameter)
+    *,
     epochs: Hyper[int, Ge[1]] = 100,
     lr: Hyper[float, Gt[0.0]] = 0.001,
 ) -> dict:
     return {"trained": True}
+
+# Create a configured function
+trainer = train.Config(epochs=50, lr=0.01).make()
+result = trainer(data=[1.0, 2.0, 3.0])
 ```
 
 ### Constraints & Validation
 
-The `Hyper[T]` annotation attaches validation constraints to parameters:
+The `Hyper[T]` annotation attaches validation constraints:
 
 ```python
-from dataclasses import dataclass
 from nonfig import configurable, Hyper, Ge, Le, Gt, MinLen, Pattern
 
-@dataclass
+@configurable
 class Network:
-    learning_rate: Hyper[float, Gt[0.0]]                # Required, > 0
-    dropout: Hyper[float, Ge[0.0], Le[1.0]] = 0.5       # 0 <= x <= 1
-    layers: Hyper[int, Ge[1], Le[100]] = 10             # 1 <= x <= 100
-    name: Hyper[str, MinLen[3], Pattern[r"^[a-z]+$"]] = "net"
-
-Network = configurable(Network)  # For full typing support
+    def __init__(
+        self,
+        learning_rate: Hyper[float, Gt[0.0]],                 # Required, > 0
+        dropout: Hyper[float, Ge[0.0], Le[1.0]] = 0.5,        # 0 <= x <= 1
+        name: Hyper[str, MinLen[3], Pattern[r"^[a-z]+$"]] = "net",
+    ):
+        ...
 ```
 
-**Available constraints:** `Ge` (>=), `Gt` (>), `Le` (≤), `Lt` (<), `MinLen`,
-`MaxLen`, `MultipleOf`, `Pattern`.
+**Available constraints:** `Ge` (>=), `Gt` (>), `Le` (≤), `Lt` (<), `MinLen`, `MaxLen`, `MultipleOf`, `Pattern`.
 
-### Nested Configurations
+### Cross-Field Validation
 
-Use `DEFAULT` to compose configs hierarchically:
+Define a `__config_validate__` hook for validation across multiple fields:
 
 ```python
 @configurable
-@dataclass
-class Pipeline:
-    model: Model = DEFAULT      # Uses Model's defaults
-    optimizer: Optimizer = DEFAULT
+class Optimizer:
+    def __init__(self, name: str = "Adam", momentum: float | None = None):
+        self.name = name
+        self.momentum = momentum
 
-config = Pipeline.Config(
-    model=Model.Config(hidden_size=512),
-)
-pipeline = config.make()
+    @staticmethod
+    def __config_validate__(config: "Optimizer.Config") -> "Optimizer.Config":
+        if config.name == "SGD" and config.momentum is None:
+            raise ValueError("SGD requires momentum to be set")
+        return config
+
+# This raises ValueError
+Optimizer.Config(name="SGD", momentum=None)
 ```
 
-## Performance & Optimization
+### CLI Runner
 
-`nonfig` is designed for high-performance applications like machine learning training
-loops.
+Run configurable targets with command-line overrides:
 
-### Core Performance
+```python
+from nonfig import configurable, Hyper, run_cli
+
+@configurable
+def train(*, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01) -> dict:
+    return {"epochs": epochs, "lr": lr}
+
+if __name__ == "__main__":
+    result = run_cli(train)  # Parse sys.argv
+    print(result)
+```
+
+```bash
+python train.py epochs=100 lr=0.001 optimizer.momentum=0.9
+```
+
+Features:
+- Dot notation for nested configs (`optimizer.lr=0.01`)
+- Automatic type coercion based on Config field types
+
+### Config Loaders
+
+Load configs from JSON, TOML, or YAML files:
+
+```python
+from nonfig import load_json, load_toml, load_yaml
+
+# Load and instantiate
+data = load_toml("config.toml")
+config = Model.Config(**data)
+model = config.make()
+```
+
+### Generic Classes
+
+Generic classes preserve type parameters in their Config:
+
+```python
+@configurable
+class Container[T]:
+    def __init__(self, count: int = 0):
+        self.count = count
+
+# PEP 695 style generics work
+assert hasattr(Container.Config, "__type_params__")
+
+# Generic[T] style also supported
+from typing import Generic, TypeVar
+T = TypeVar("T")
+
+@configurable
+class OldStyle(Generic[T]):
+    ...
+```
+
+## Performance
 
 | Pattern | Typical Latency* | Notes |
 | :--- | :--- | :--- |
-| **Raw Instantiation** | ~0.3µs | Baseline Python class creation |
-| **Direct Call** | ~0.3µs | Calling decorated class/function (Zero Overhead) |
-| **Reused `Config.make()`** | ~0.6µs | Metadata-cached factory call |
-| **`Config.fast_make()`** | ~0.5µs | Bypasses Pydantic for maximum speed |
-| **Full lifecycle** | ~3.3µs | `Config(...).make()` (includes validation) |
+| **Raw Instantiation** | ~0.3µs | Baseline Python class |
+| **Direct Call** | ~0.3µs | Zero overhead on decorated class |
+| **`Config.make()`** | ~1.3µs | Cached factory call |
+| **`Config.fast_make()`** | ~0.5µs | Bypasses Pydantic validation |
+| **Full lifecycle** | ~4.3µs | `Config(...).make()` |
 
-*\* Measured on Python 3.13, Linux x86_64.*
+*Measured on Python 3.13, Linux x86_64.*
 
-### High-Performance Usage (`fast_make`)
+### High-Performance Usage
 
-When you need to create instances in a hot loop and you already trust your parameters,
-use the static `.fast_make()` method. It bypasses Pydantic's internal validation and
-coercion logic for maximum speed:
+For hot loops where parameters are already trusted:
 
 ```python
-# Execution (Fast path, validation-free)
+# Bypasses Pydantic validation (~0.5µs)
 for _ in range(1_000_000):
-    # OR use FastModel.Config.fast_make() to bypass Pydantic (~0.5µs)
-    model = FastModel.Config.fast_make(learning_rate=0.01)
+    model = Model.Config.fast_make(hidden_size=128)
 ```
-
-### Factory Pattern (Non-Caching)
-
-Every call to `.make()` returns a **fresh instance**. This ensures that configurations
-remain pure "recipes" and do not accidentally share mutable state between components.
 
 ## Serialization
 
@@ -251,29 +240,63 @@ Model.Config.model_validate_json(json_string)
 
 ## Advanced Features
 
-- **Circular dependencies** in nested configs are detected and prevented.
-- **Stub generation**: Use `nonfig-stubgen src/` or `nonfig-stubgen "src/**/*.py"` for perfect IDE support in libraries. Supports glob patterns.
-- **Thread safe**: Concurrent config creation and usage is fully supported.
+- **Circular dependencies** in nested configs are detected at decoration time
+- **Cycle detection** in `recursive_make` prevents infinite loops at runtime
+- **Stub generation**: `nonfig-stubgen src/` for perfect IDE support
+- **Thread safe**: Concurrent config creation fully supported
 
 ## Best Practices
 
-### Use Keyword-Only Parameters for Hypers
+### Use Keyword-Only Parameters
 
-When defining configurable functions, place hyperparameters after `*` to make them keyword-only:
+Place hyperparameters after `*` to make them keyword-only:
 
 ```python
-# ✅ Recommended: keyword-only hypers
+# ✅ Recommended
 @configurable
 def train(data, *, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01):
     ...
 
 # ⚠️ Avoid: positional hypers can cause argument conflicts
-@configurable  
+@configurable
 def train(data, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01):
     ...
 ```
 
-This prevents potential conflicts when calling the bound function with positional arguments.
+## API Reference
+
+### Decorators & Types
+
+| Export | Description |
+|:-------|:------------|
+| `configurable` | Decorator to make classes/functions configurable |
+| `Hyper[T, ...]` | Mark a parameter as a hyperparameter with constraints |
+| `DEFAULT` | Sentinel for nested configs with default values |
+| `MakeableModel` | Base class for generated Config classes |
+| `BoundFunction` | Wrapper for functions with bound hyperparameters |
+| `ConfigValidationError` | Exception with readable error paths |
+
+### Constraints
+
+| Export | Description |
+|:-------|:------------|
+| `Ge[n]` | Greater than or equal |
+| `Gt[n]` | Greater than |
+| `Le[n]` | Less than or equal |
+| `Lt[n]` | Less than |
+| `MinLen[n]` | Minimum length |
+| `MaxLen[n]` | Maximum length |
+| `MultipleOf[n]` | Must be multiple of |
+| `Pattern[r"..."]` | Regex pattern match |
+
+### Utilities
+
+| Export | Description |
+|:-------|:------------|
+| `run_cli(target, args)` | Run target with CLI overrides |
+| `load_json(path)` | Load dict from JSON file |
+| `load_toml(path)` | Load dict from TOML file |
+| `load_yaml(path)` | Load dict from YAML file (requires `pyyaml`) |
 
 ## Comparison
 
@@ -293,6 +316,6 @@ Contributions welcome! Please open an issue or pull request.
 
 MIT License
 
-* * *
+---
 
 **nonfig** — Configuration should be effortless.
