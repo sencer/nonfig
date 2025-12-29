@@ -263,6 +263,54 @@ def train(data, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01):
     ...
 ```
 
+## Limitations
+
+### Function Config Overrides
+When using `Config.make()` on a function, the returned callable (a `BoundFunction`) has its hyperparameters "baked in". You cannot override them by passing keyword arguments during the call, as this will raise a `TypeError` (multiple values for keyword argument).
+
+```python
+# Create function with baked-in params
+fn = train.Config(epochs=50).make()
+
+# ❌ This fails:
+fn(data, epochs=100)
+
+# ✅ Instead, create a new config:
+fn = train.Config(epochs=100).make()
+fn(data)
+```
+
+
+### Recursive Configurability & Smart Propagation
+`nonfig` supports automatic inheritance. If you inherit from a `@configurable` class, the subclass is automatically made configurable.
+
+Furthermore, `nonfig` uses **Smart Parameter Propagation**:
+1.  If your subclass accepts `**kwargs` in `__init__`, `nonfig` assumes you are passing arguments to the base class.
+2.  It automatically adds all configurable parameters from the Base class to the Subclass's Config.
+3.  If you explicitly define a parameter in the Subclass, it overrides the Base parameter.
+
+```python
+@configurable
+class Base:
+    def __init__(self, x: int = 1):
+        self.x = x
+
+# ✅ Sub accepts **kwargs, so it inherits 'x' from Base
+class Sub(Base):
+    def __init__(self, y: int = 2, **kwargs):
+        super().__init__(**kwargs)
+        self.y = y
+
+# Config has both x and y!
+config = Sub.Config(x=10, y=20)
+obj = config.make()
+assert obj.x == 10
+assert obj.y == 20
+```
+
+If you *omit* `**kwargs`, `nonfig` assumes you are hiding the base parameters, and they will not appear in the Config.
+
+
 ## API Reference
 
 ### Decorators & Types

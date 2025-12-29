@@ -180,7 +180,43 @@ def _configurable_class[T](cls: type[T]) -> type[T]:
     # Attach to the original class
     cls.Config = config_cls  # type: ignore[attr-defined]
 
+    # Inject __init_subclass__ for recursive configurability
+    # This ensures subclasses are also marked as configurable
+    _inject_init_subclass(cls)
+
     return cls
+
+
+def _inject_init_subclass(cls: type[Any]) -> None:
+  """Inject a custom __init_subclass__ to recursively configure subclasses."""
+  # Check if __init_subclass__ is already defined on THIS class
+  original = cls.__dict__.get("__init_subclass__")
+
+  def auto_config_init_subclass(sub_cls: type[Any], **kwargs: Any) -> None:
+    # 1. Call the original __init_subclass__ (maintain MRO chain)
+    if original:
+      # If original was a classmethod (which it effectively is), unwrap it
+      if isinstance(original, classmethod):
+        cast("Any", original).__func__(sub_cls, **kwargs)
+      else:
+        # Static method or raw function
+        original(sub_cls, **kwargs)
+    else:
+      # Call super().__init_subclass__ explicitly
+      # We use super(cls, sub_cls) to skip 'cls' and go to the next in MRO
+      # using cast(Any, ...) to avoid "Type of super_cls is unknown"
+      super_cls = cast("Any", super(cls, sub_cls))
+      if hasattr(super_cls, "__init_subclass__"):
+        super_cls.__init_subclass__(**kwargs)
+
+    # 2. Automatically make the subclass configurable
+    # The configurable() function is idempotent (checks for Config existence)
+    # We must call it on sub_cls, not cls
+    configurable(sub_cls)
+
+  # Attach as a classmethod
+  # Explicitly use setattr because __init_subclass__ type is special and direct assignment fails type check
+  setattr(cls, "__init_subclass__", classmethod(auto_config_init_subclass))  # noqa: B010
 
 
 def _create_class_config[T](

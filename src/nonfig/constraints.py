@@ -276,20 +276,26 @@ def validate_constraint_conflicts(
     lower_bound = constraints["ge"]
     lower_exclusive = False
   if "gt" in constraints:
+    gt_val = constraints["gt"]
     if lower_bound is not None:
-      lower_bound = max(lower_bound, constraints["gt"])
+      if gt_val >= lower_bound:
+        lower_bound = gt_val
+        lower_exclusive = True
     else:
-      lower_bound = constraints["gt"]
+      lower_bound = gt_val
       lower_exclusive = True
 
   if "le" in constraints:
     upper_bound = constraints["le"]
     upper_exclusive = False
   if "lt" in constraints:
+    lt_val = constraints["lt"]
     if upper_bound is not None:
-      upper_bound = min(upper_bound, constraints["lt"])
+      if lt_val <= upper_bound:
+        upper_bound = lt_val
+        upper_exclusive = True
     else:
-      upper_bound = constraints["lt"]
+      upper_bound = lt_val
       upper_exclusive = True
 
   if lower_bound is not None and upper_bound is not None:
