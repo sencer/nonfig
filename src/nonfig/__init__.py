@@ -1,6 +1,6 @@
 """nonfig - Automatic Pydantic config generation from function signatures."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from nonfig.cli.runner import run_cli
 from nonfig.constraints import Ge, Gt, Le, Lt, MaxLen, MinLen, MultipleOf, Pattern
