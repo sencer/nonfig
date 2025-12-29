@@ -1,4 +1,7 @@
-"""The configurable decorator and related utilities."""
+"The configurable decorator and related utilities."
+
+# pyright: reportAttributeAccessIssue=false, reportPrivateUsage=false, reportUnknownVariableType=false
+# pyright: reportCallIssue=false, reportArgumentType=false, reportFunctionMemberAccess=false
 
 from __future__ import annotations
 
@@ -157,7 +160,7 @@ def configurable[T](
       result = trainer(my_dataset)  # Calls train(my_dataset, epochs=20)
   """
   if isinstance(target, type):
-    return _configurable_class(target)  # pyright: ignore[reportUnknownVariableType]
+    return _configurable_class(target)
   if callable(target):
     return _configurable_function(target)
   raise TypeError(
@@ -187,7 +190,7 @@ def _configurable_class[T](cls: type[T]) -> type[T]:
     config_cls = _create_class_config(cls, params)
 
     # Attach to the original class
-    cls.Config = config_cls  # type: ignore[attr-defined]
+    cls.Config = config_cls
 
     # Inject __init_subclass__ for recursive configurability
     # This ensures subclasses are also marked as configurable
@@ -225,7 +228,7 @@ def _inject_init_subclass(cls: type[Any]) -> None:
 
   # Attach as a classmethod
   # Explicitly use setattr because __init_subclass__ type is special and direct assignment fails type check
-  setattr(cls, "__init_subclass__", classmethod(auto_config_init_subclass))  # noqa: B010
+  setattr(cls, "__init_subclass__", classmethod(auto_config_init_subclass))
 
 
 def _create_class_config[T](
@@ -260,9 +263,9 @@ def _create_class_config[T](
     "type[MakeableModel[T]]",
     create_model(
       f"{cls.__name__}Config",
-      __base__=MakeableModel[cls],  # type: ignore[valid-type]
+      __base__=MakeableModel[cls],
       __validators__=validators,
-      **params,  # type: ignore[arg-type]
+      **params,
     ),
   )
 
@@ -279,16 +282,16 @@ def _create_class_config[T](
   # Pre-calculate which fields could be nested
   maybe_nested = calculate_class_make_fields(config_cls)
   is_leaf = not maybe_nested
-  config_cls._maybe_nested_fields = maybe_nested  # pyright: ignore[reportAttributeAccessIssue]
-  config_cls._is_always_leaf = is_leaf  # pyright: ignore[reportAttributeAccessIssue]
+  config_cls._maybe_nested_fields = maybe_nested
+  config_cls._is_always_leaf = is_leaf
 
   # Add the _make_impl method
-  config_cls._make_impl = _create_class_make_impl(  # pyright: ignore[reportAttributeAccessIssue,reportPrivateUsage]
+  config_cls._make_impl = _create_class_make_impl(
     cls, is_leaf=is_leaf, maybe_nested=maybe_nested
   )
 
   # Add fast_make static method for high-performance direct creation
-  config_cls.fast_make = _create_class_fast_make(  # pyright: ignore[reportAttributeAccessIssue]
+  config_cls.fast_make = _create_class_fast_make(
     cls, is_leaf=is_leaf, maybe_nested=maybe_nested
   )
 
@@ -381,8 +384,8 @@ def _configurable_function(func: Callable[..., Any]) -> Callable[..., Any]:
   type_proxy = _create_type_proxy(func, config_cls)
 
   # Attach Config and Type directly to the function
-  func.Config = config_cls  # type: ignore[attr-defined]
-  func.Type = type_proxy  # type: ignore[attr-defined]
+  func.Config = config_cls
+  func.Type = type_proxy
 
   # Expose default hyperparameters as attributes on the function
   for name, (_, field_info) in hyper_params.items():
@@ -428,8 +431,8 @@ def _create_function_config(
     "type[MakeableModel[Callable[..., Any]]]",
     create_model(
       config_name,
-      __base__=MakeableModel[return_type],  # type: ignore[valid-type]
-      **params,  # type: ignore[arg-type]
+      __base__=MakeableModel[return_type],
+      **params,
     ),
   )
 
@@ -440,16 +443,16 @@ def _create_function_config(
   # Pre-calculate which fields could be nested
   maybe_nested = calculate_class_make_fields(config_cls)
   is_leaf = not maybe_nested
-  config_cls._maybe_nested_fields = maybe_nested  # pyright: ignore[reportAttributeAccessIssue]
-  config_cls._is_always_leaf = is_leaf  # pyright: ignore[reportAttributeAccessIssue]
+  config_cls._maybe_nested_fields = maybe_nested
+  config_cls._is_always_leaf = is_leaf
 
   # Add the _make_impl method
-  config_cls._make_impl = _create_function_make_impl(  # pyright: ignore[reportAttributeAccessIssue,reportPrivateUsage]
+  config_cls._make_impl = _create_function_make_impl(
     func, is_leaf=is_leaf, maybe_nested=maybe_nested
   )
 
   # Add fast_make static method
-  config_cls.fast_make = _create_function_fast_make(  # pyright: ignore[reportAttributeAccessIssue]
+  config_cls.fast_make = _create_function_fast_make(
     func, is_leaf=is_leaf, maybe_nested=maybe_nested
   )
 

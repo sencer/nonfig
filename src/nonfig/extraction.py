@@ -1,5 +1,7 @@
 """Parameter extraction utilities for nonfig."""
 
+# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
@@ -17,7 +19,7 @@ from typing import (
 )
 
 from annotated_types import BaseMetadata, Ge, Gt, Le, Lt, MaxLen, MinLen, MultipleOf
-from pydantic import Field  # pyright: ignore[reportUnknownVariableType]
+from pydantic import Field
 from pydantic.fields import FieldInfo
 
 from nonfig.constraints import PatternConstraint, validate_constraint_conflicts
@@ -97,9 +99,9 @@ def unwrap_hyper(type_ann: Any) -> tuple[Any, tuple[Any, ...], bool]:
     ) or any(isinstance(m, LeafMarker) for m in metadata)
 
     # Filter out HyperMarker and LeafMarker from constraints
-    constraints = tuple(  # pyright: ignore[reportUnknownVariableType]
+    constraints = tuple(
       m
-      for m in metadata  # pyright: ignore[reportUnknownArgumentType]
+      for m in metadata
       if not (isinstance(m, type) and issubclass(m, (HyperMarker, LeafMarker)))
       and not isinstance(m, LeafMarker)
     )
@@ -253,7 +255,7 @@ def transform_type_for_nesting(type_ann: Any, is_leaf: bool = False) -> Any:
 
   if is_mapping_origin(origin):
     args = get_args(type_ann)
-    if len(args) == 2:  # noqa: PLR2004
+    if len(args) == 2:
       transformed_value = transform_type_for_nesting(args[1])
       if origin is dict:
         return dict[args[0], transformed_value]
@@ -304,11 +306,11 @@ def _get_config_class(field_type: Any) -> type[MakeableModel[Any]] | None:
   if isinstance(field_type, type):
     # First check if field_type itself is a MakeableModel (e.g., SomeClass.Config)
     if issubclass(field_type, MakeableModel):
-      return field_type  # pyright: ignore[reportUnknownVariableType]
+      return field_type
     # Then check if field_type has a Config attribute (e.g., configurable class)
-    config_cls = getattr(field_type, "Config", None)  # pyright: ignore[reportUnknownArgumentType]
+    config_cls = getattr(field_type, "Config", None)
     if isinstance(config_cls, type) and issubclass(config_cls, MakeableModel):
-      return config_cls  # pyright: ignore[reportUnknownVariableType]
+      return config_cls
   return None
 
 
@@ -462,7 +464,7 @@ def get_type_hints_safe(obj: Any) -> dict[str, Any]:
 
       ns = {**ns, "Hyper": Hyper, "Leaf": Leaf}
     return get_type_hints(obj, globalns=ns, include_extras=True)
-  except Exception:  # noqa: BLE001
+  except Exception:
     # Fallback to annotations without resolution
     return getattr(obj, "__annotations__", {})
 
@@ -614,14 +616,14 @@ def extract_function_hyper_params(
     # Check for implicit hyper: default is DEFAULT, MakeableModel, or configurable callable
     if not is_hyper and isinstance(param.default, (DefaultSentinel, MakeableModel)):
       is_hyper = True
-    if not is_hyper and _is_configurable_callable(param.default):  # pyright: ignore[reportUnknownMemberType]
+    if not is_hyper and _is_configurable_callable(param.default):
       is_hyper = True
 
     if not is_hyper:
       continue
 
     inner_type, constraints, is_leaf = unwrap_hyper(field_type)
-    default = param.default  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    default = param.default
 
     params[name] = create_field_info(
       name, inner_type, default, constraints, func_name, is_leaf=is_leaf
