@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nonfig"
-version = "0.1.0"
+version = "0.1.1"
 description = "Automatic Pydantic config generation from function signatures with hyperparameters"
 authors = [{ name = "Sencer S.", email = "nospam@gmail.com" }]
 license = { text = "MIT" }
