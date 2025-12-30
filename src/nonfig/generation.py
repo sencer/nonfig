@@ -51,6 +51,8 @@ _NONFIG_RESERVED_NAMES = {
   "_maybe_nested_fields",
 }
 
+_ALL_RESERVED_NAMES = _RESERVED_PYDANTIC_NAMES | _NONFIG_RESERVED_NAMES
+
 
 def _to_pascal_case(name: str) -> str:
   """Convert snake_case or other naming to PascalCase.
@@ -237,13 +239,10 @@ def _create_class_config[T](
   """Create a Config class for a target class."""
   # Check for reserved names
   for name in params:
-    if name in _RESERVED_PYDANTIC_NAMES:
+    if name in _ALL_RESERVED_NAMES:
+      source = "Pydantic" if name in _RESERVED_PYDANTIC_NAMES else "nonfig"
       raise ValueError(
-        f"Parameter '{name}' is reserved by Pydantic and cannot be used as a Config field. Please rename this parameter in your __init__ or dataclass."
-      )
-    if name in _NONFIG_RESERVED_NAMES:
-      raise ValueError(
-        f"Parameter '{name}' is reserved by nonfig and cannot be used as a Config field. Please rename this parameter in your __init__ or dataclass."
+        f"Parameter '{name}' is reserved by {source} and cannot be used as a Config field. Please rename this parameter in your __init__ or dataclass."
       )
 
   # Check for __config_validate__ hook and create validator if present
@@ -430,13 +429,10 @@ def _create_function_config(
   """Create a Config class for a function."""
   # Check for reserved names
   for name in params:
-    if name in _RESERVED_PYDANTIC_NAMES:
+    if name in _ALL_RESERVED_NAMES:
+      source = "Pydantic" if name in _RESERVED_PYDANTIC_NAMES else "nonfig"
       raise ValueError(
-        f"Parameter '{name}' is reserved by Pydantic and cannot be used as a Config field. Please rename this parameter in function '{func.__name__}'."
-      )
-    if name in _NONFIG_RESERVED_NAMES:
-      raise ValueError(
-        f"Parameter '{name}' is reserved by nonfig and cannot be used as a Config field. Please rename this parameter in function '{func.__name__}'."
+        f"Parameter '{name}' is reserved by {source} and cannot be used as a Config field. Please rename this parameter in function '{func.__name__}'."
       )
 
   # The return type is a callable that takes non-Hyper args

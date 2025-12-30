@@ -90,7 +90,9 @@ class MakeableModel[R](BaseModel):
   def make(self) -> R:
     """Create an instance of the target from this config.
 
-    Subclasses should override _make_impl().
+    Note: This is the generic fallback implementation. Config classes
+    created via @configurable will have a specialized, high-performance
+    make() method injected that bypasses this one.
     """
     # Optimized access to private metadata to bypass Pydantic overhead
     private = cast("dict[str, Any]", self.__pydantic_private__)
