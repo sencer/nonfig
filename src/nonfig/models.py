@@ -326,7 +326,7 @@ def recursive_make(value: Any, visited: set[int] | None = None) -> Any:
   return value
 
 
-class BoundFunction[R]:
+class BoundFunction:
   """
   A callable wrapper that exposes hyperparameters as attributes.
 
@@ -355,10 +355,10 @@ class BoundFunction[R]:
     name: str,
     doc: str | None = None,
   ) -> None:
-    self._func = func
-    self._hyper_kwargs = hyper_kwargs
-    self._name = name
-    self._doc = doc
+    object.__setattr__(self, "_func", func)
+    object.__setattr__(self, "_hyper_kwargs", hyper_kwargs)
+    object.__setattr__(self, "_name", name)
+    object.__setattr__(self, "_doc", doc)
 
   @property
   def __name__(self) -> str:
