@@ -240,7 +240,9 @@ class Pattern:
 
     # Validate and compile regex at decoration time
     try:
-      compiled = cast("re.Pattern[str]", re.compile(pattern))
+      # Explicit cast to Any needed to avoid "unnecessary cast" in CI (where type is correct)
+      # while handling "Unknown" return type in local env (Python 3.13)
+      compiled: re.Pattern[str] = cast("Any", re.compile(pattern))
     except re.error as e:
       raise InvalidPatternError(f"Invalid regex pattern: {e}") from e
     return PatternConstraint(compiled)
