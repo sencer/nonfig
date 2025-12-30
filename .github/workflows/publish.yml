@@ -8,6 +8,8 @@ jobs:
   publish:
     name: Publish to PyPI
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Mandatory for Trusted Publishing
 
     steps:
     - uses: actions/checkout@v4
@@ -26,13 +28,8 @@ jobs:
       run: |
         uv venv
         source .venv/bin/activate
-        uv pip install build twine
+        uv pip install build
         python -m build
 
     - name: Publish to PyPI
-      env:
-        TWINE_USERNAME: __token__
-        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-      run: |
-        source .venv/bin/activate
-        twine upload dist/*
+      uses: pypa/gh-action-pypi-publish@release/v1
