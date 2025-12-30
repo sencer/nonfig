@@ -77,3 +77,32 @@ def test_stub_transforms_structural_alias(tmp_path: Path):
   # For this specific bug fix, we care about CONTAINER aliases not breaking.
   # So we focus on the primitive test mainly.
   pass
+
+
+def test_stub_respects_annotated_alias(tmp_path: Path):
+  """Test that aliases defined via Annotated[...] are correctly identified."""
+  source_file = tmp_path / "annotated_alias.py"
+  source_file.write_text(
+    dedent("""
+        from typing import Annotated
+        from nonfig import configurable, Hyper, Leaf
+        
+        # Alias with Leaf marker
+        StrictModel = Annotated['Model', Leaf]
+        
+        @configurable
+        class Model:
+            x: int = 1
+
+        @configurable
+        def process(m: Hyper[StrictModel]):
+            pass
+    """)
+  )
+
+  infos, aliases = scan_module(source_file)
+  stub_content = generate_stub_content(infos, source_file, aliases)
+
+  # StrictModel has Leaf marker, so it should NOT be transformed to .Config
+  assert "m: StrictModel" in stub_content
+  assert "m: StrictModel.Config" not in stub_content
