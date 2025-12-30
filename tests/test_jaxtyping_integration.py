@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-from beartype import beartype
-from jax import numpy as jnp
-from jaxtyping import Array, Float, jaxtyped
 import pytest
 
+try:
+  from jax import numpy as jnp
+  from jaxtyping import Array, Float, jaxtyped
+
+  HAS_JAX = True
+except ImportError:
+  HAS_JAX = False
+
+from beartype import beartype
+
 from nonfig import Hyper, configurable
+
+pytestmark = pytest.mark.skipif(not HAS_JAX, reason="jaxtyping/jax not installed")
 
 # Mock dimensions for jaxtyping strings to avoid F821
 b, c = "b", "c"
