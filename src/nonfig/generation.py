@@ -285,8 +285,8 @@ def _create_class_config[T](
   config_cls._maybe_nested_fields = maybe_nested
   config_cls._is_always_leaf = is_leaf
 
-  # Add the _make_impl method
-  config_cls._make_impl = _create_class_make_impl(
+  # Add the make method directly
+  config_cls.make = _create_class_make_method(
     cls, is_leaf=is_leaf, maybe_nested=maybe_nested
   )
 
@@ -326,29 +326,48 @@ def _create_class_fast_make[T](
   return fast_make_nested
 
 
-def _create_class_make_impl[T](
+def _create_class_make_method[T](
   cls: type[T],
   is_leaf: bool = False,
   maybe_nested: set[str] | None = None,
 ) -> Callable[[MakeableModel[T]], T]:
-  """Create the _make_impl() method for a class Config."""
+  """Create the make() method for a class Config."""
   if is_leaf:
 
-    def _make_impl_leaf(self: MakeableModel[T]) -> T:
+    def make_leaf(self: MakeableModel[T]) -> T:
       # Ultra-fast leaf path: direct instantiation from __dict__
       return cls(**self.__dict__)
 
-    return _make_impl_leaf
+    return make_leaf
 
   # Specialized nested implementation to avoid runtime loops
   nested_names = list(maybe_nested or set())
 
-  def _make_impl_nested(self: MakeableModel[T]) -> T:
+  def make_nested(self: MakeableModel[T]) -> T:
     data = self.__dict__
+    # Optimize access to private storage
     private = cast("dict[str, Any]", self.__pydantic_private__)
 
-    # If no actual nested values at runtime, use fast path
-    if not private["_has_nested"]:
+    # Calculate _has_nested lazily if not present (using _make_fields as flag)
+    if not private.get("_make_fields"):
+      has_nested = False
+      for name in nested_names:
+        # Check if the value is actually nested
+        # We access via data to avoid descriptors
+        val = data.get(name)
+        from nonfig.models import is_nested_type
+
+        if is_nested_type(val):
+          has_nested = True
+          break
+      private["_has_nested"] = has_nested
+      # Mark as done using a sentinel
+      private["_make_fields"] = [("DONE", False)]
+    else:
+      has_nested = private["_has_nested"]
+
+    # Fast path if no nested objects found
+    if not has_nested:
       return cls(**data)
 
     # Calculate updates only for nested fields
@@ -364,7 +383,7 @@ def _create_class_make_impl[T](
 
     return cls(**(data | updates))
 
-  return _make_impl_nested
+  return make_nested
 
 
 def _configurable_function(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -446,8 +465,8 @@ def _create_function_config(
   config_cls._maybe_nested_fields = maybe_nested
   config_cls._is_always_leaf = is_leaf
 
-  # Add the _make_impl method
-  config_cls._make_impl = _create_function_make_impl(
+  # Add the make method directly
+  config_cls.make = _create_function_make_method(
     func, is_leaf=is_leaf, maybe_nested=maybe_nested
   )
 
@@ -486,27 +505,43 @@ def _create_function_fast_make(
   return fast_make_nested
 
 
-def _create_function_make_impl(
+def _create_function_make_method(
   func: Callable[..., Any],
   is_leaf: bool = False,
   maybe_nested: set[str] | None = None,
 ) -> Callable[[MakeableModel[Any]], BoundFunction[Any]]:
-  """Create the _make_impl() method for a function Config."""
+  """Create the make() method for a function Config."""
   if is_leaf:
 
-    def _make_impl_leaf(self: MakeableModel[Any]) -> BoundFunction[Any]:
+    def make_leaf(self: MakeableModel[Any]) -> BoundFunction[Any]:
       return BoundFunction(func, self.__dict__)
 
-    return _make_impl_leaf
+    return make_leaf
 
   # Specialized nested implementation to avoid runtime loops
   nested_names = list(maybe_nested or set())
 
-  def _make_impl_nested(self: MakeableModel[Any]) -> BoundFunction[Any]:
+  def make_nested(self: MakeableModel[Any]) -> BoundFunction[Any]:
     data = self.__dict__
     private = cast("dict[str, Any]", self.__pydantic_private__)
 
-    if not private["_has_nested"]:
+    # Calculate _has_nested lazily if not present (using _make_fields as flag)
+    if not private.get("_make_fields"):
+      has_nested = False
+      for name in nested_names:
+        val = data.get(name)
+        from nonfig.models import is_nested_type
+
+        if is_nested_type(val):
+          has_nested = True
+          break
+      private["_has_nested"] = has_nested
+      # Mark as done using a sentinel
+      private["_make_fields"] = [("DONE", False)]
+    else:
+      has_nested = private["_has_nested"]
+
+    if not has_nested:
       return BoundFunction(func, data)
 
     updates: dict[str, Any] = {}
@@ -521,7 +556,7 @@ def _create_function_make_impl(
 
     return BoundFunction(func, data | updates)
 
-  return _make_impl_nested
+  return make_nested
 
 
 def _create_type_proxy(
