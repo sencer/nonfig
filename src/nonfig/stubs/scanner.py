@@ -32,6 +32,7 @@ class ConfigurableInfo:
   call_params: list[tuple[str, str, str | None]] = field(default_factory=list)
   return_type: str = "Any"
   docstring: str | None = None
+  is_wrapped: bool = False
 
 
 def _is_configurable_decorator(node: ast.expr, aliases: set[str]) -> bool:
@@ -226,9 +227,39 @@ def _extract_constraints_from_hyper(node: ast.expr, param_name: str) -> None:
     validate_constraint_conflicts(constraints, param_name)
 
 
+def _is_implicit_hyper_default(
+  default: ast.expr | None, ann: ast.expr | None, config_names: set[str]
+) -> bool:
+  """Check if a default value implies a hyperparameter."""
+  if default is None:
+    return False
+
+  # Case 1: DEFAULT sentinel
+  if _is_default_sentinel(default):
+    return True
+
+  # Case 2: Configurable callable pattern (fn: inner.Type = inner)
+  if _is_configurable_callable_default(default, ann):
+    return True
+
+  # Case 3: Reference to a known configuration in this module
+  # default = MyConfig
+  if isinstance(default, ast.Name) and default.id in config_names:
+    return True
+
+  # default = MyConfig.Config
+  return (
+    isinstance(default, ast.Attribute)
+    and isinstance(default.value, ast.Name)
+    and default.value.id in config_names
+    and default.attr == "Config"
+  )
+
+
 def _scan_function(
   node: ast.FunctionDef | ast.AsyncFunctionDef,
   configurable_aliases: set[str],
+  config_names: set[str] | None = None,
 ) -> ConfigurableInfo | None:
   """Scan a function for @configurable decorator."""
   has_configurable = any(
@@ -256,10 +287,8 @@ def _scan_function(
     default = node.args.defaults[default_idx] if default_idx >= 0 else None
 
     is_hyper = False
-    if (
-      (ann and _is_hyper_annotation(ann))
-      or _is_default_sentinel(default)
-      or _is_configurable_callable_default(default, ann)
+    if (ann and _is_hyper_annotation(ann)) or _is_implicit_hyper_default(
+      default, ann, config_names or set()
     ):
       is_hyper = True
 
@@ -321,6 +350,21 @@ def _scan_class(
 
       ann = item.annotation
       default = item.value
+
+      # Skip fields marked with init=False in field() call
+      if (
+        isinstance(default, ast.Call)
+        and isinstance(default.func, ast.Name)
+        and default.func.id == "field"
+        and any(
+          kw.arg == "init"
+          and isinstance(kw.value, ast.Constant)
+          and kw.value.value is False
+          for kw in default.keywords
+        )
+      ):
+        continue
+
       if _is_hyper_annotation(ann):
         inner_type, is_leaf = _unwrap_hyper(ann)
         _extract_constraints_from_hyper(ann, item.target.id)
@@ -376,9 +420,10 @@ def _scan_class(
   )
 
 
-def _extract_configurable_aliases(tree: ast.Module) -> set[str]:
-  """Identify names that refer to 'configurable'."""
-  aliases = {"configurable"}
+def _extract_configurable_aliases(tree: ast.Module) -> tuple[set[str], set[str]]:
+  """Identify names that refer to 'configurable' and 'wrap_external'."""
+  configurable_aliases = {"configurable"}
+  wrap_external_aliases = {"wrap_external"}
 
   for node in tree.body:
     if isinstance(node, ast.ImportFrom) and node.module in {
@@ -387,9 +432,11 @@ def _extract_configurable_aliases(tree: ast.Module) -> set[str]:
     }:
       for name in node.names:
         if name.name == "configurable":
-          aliases.add(name.asname or name.name)
+          configurable_aliases.add(name.asname or name.name)
+        if name.name == "wrap_external":
+          wrap_external_aliases.add(name.asname or name.name)
 
-  return aliases
+  return configurable_aliases, wrap_external_aliases
 
 
 def extract_primitive_aliases(tree: ast.Module) -> set[str]:
@@ -471,9 +518,154 @@ def extract_primitive_aliases(tree: ast.Module) -> set[str]:
   return aliases
 
 
+def _collect_config_names(
+  tree: ast.Module, configurable_aliases: set[str], wrap_aliases: set[str]
+) -> set[str]:
+  """Collect all names that refer to configurations in this module (including imports)."""
+  config_names: set[str] = set()
+
+  # Pass 1: Explicitly defined configurations and direct imports
+  for node in tree.body:
+    # 1. Decorated items
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+      if any(
+        _is_configurable_decorator(d, configurable_aliases) for d in node.decorator_list
+      ):
+        config_names.add(node.name)
+    # 2. wrap_external assignments
+    elif isinstance(node, ast.Assign):
+      for target_node in node.targets:
+        if isinstance(target_node, (ast.Tuple, ast.List)):
+          targets = target_node.elts
+          if isinstance(node.value, (ast.Tuple, ast.List)) and len(
+            node.value.elts
+          ) == len(targets):
+            values = node.value.elts
+          else:
+            values = [node.value] * len(
+              targets
+            )  # Fallback for scalar assignments to multiple targets
+        else:
+          targets = [target_node]
+          values = [node.value]
+
+        for t, v in zip(targets, values, strict=False):
+          if isinstance(t, ast.Name) and isinstance(v, ast.Call):
+            func = v.func
+            if (isinstance(func, ast.Name) and func.id in wrap_aliases) or (
+              isinstance(func, ast.Attribute) and func.attr in wrap_aliases
+            ):
+              config_names.add(t.id)
+
+    # 3. Imports from nonfig (likely configurations)
+    elif isinstance(node, ast.ImportFrom) and node.module in {
+      "nonfig",
+      "nonfig.generation",
+    }:
+      for name in node.names:
+        config_names.add(name.asname or name.name)
+
+  # Pass 2: Infer configurations from usage patterns
+  for node in ast.walk(tree):
+    # Check function/method parameters
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+      num_defaults = len(node.args.defaults)
+      num_args = len(node.args.args)
+      defaults_offset = num_args - num_defaults
+
+      for i, arg in enumerate(node.args.args):
+        default_idx = i - defaults_offset
+        default = node.args.defaults[default_idx] if default_idx >= 0 else None
+        ann = arg.annotation
+
+        if ann is None or default is None:
+          continue
+
+        # Pattern: x: T = DEFAULT
+        if _is_default_sentinel(default):
+          if isinstance(ann, ast.Name):
+            config_names.add(ann.id)
+          elif isinstance(ann, ast.Attribute) and isinstance(ann.value, ast.Name):
+            # T.Type = DEFAULT or T.Config = DEFAULT
+            config_names.add(ann.value.id)
+
+        # Pattern: x: T.Type = T or x: T.Config = T
+        if (
+          isinstance(default, ast.Name)
+          and isinstance(ann, ast.Attribute)
+          and isinstance(ann.value, ast.Name)
+          and ann.value.id == default.id
+          and ann.attr in {"Type", "Config"}
+        ):
+          config_names.add(default.id)
+
+    # Check class attributes (dataclasses)
+    elif isinstance(node, ast.ClassDef):
+      for item in node.body:
+        if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+          if item.value is None:
+            continue
+
+          if _is_default_sentinel(item.value):
+            if isinstance(item.annotation, ast.Name):
+              config_names.add(item.annotation.id)
+            elif isinstance(item.annotation, ast.Attribute) and isinstance(
+              item.annotation.value, ast.Name
+            ):
+              config_names.add(item.annotation.value.id)
+
+  return config_names
+
+
+def _extract_wrapped_configs(
+  tree: ast.Module, wrap_aliases: set[str]
+) -> list[ConfigurableInfo]:
+  """Extract information from wrap_external assignments."""
+  results: list[ConfigurableInfo] = []
+  for node in tree.body:
+    if isinstance(node, ast.Assign):
+      targets: list[ast.AST] = []
+      values: list[ast.AST] = []
+
+      for target_node in node.targets:
+        if isinstance(target_node, (ast.Tuple, ast.List)):
+          if isinstance(node.value, (ast.Tuple, ast.List)) and len(
+            node.value.elts
+          ) == len(target_node.elts):
+            targets.extend(target_node.elts)
+            values.extend(node.value.elts)
+        else:
+          targets.append(target_node)
+          values.append(node.value)
+
+      for t, v in zip(targets, values, strict=False):
+        if isinstance(t, ast.Name) and isinstance(v, ast.Call):
+          func = v.func
+          is_wrap = False
+          if (isinstance(func, ast.Name) and func.id in wrap_aliases) or (
+            isinstance(func, ast.Attribute) and func.attr in wrap_aliases
+          ):
+            is_wrap = True
+
+          if is_wrap and v.args:
+            target_arg = v.args[0]
+            target_name = ast.unparse(target_arg)
+
+            results.append(
+              ConfigurableInfo(
+                name=t.id,
+                is_class=True,
+                params=[],
+                return_type=target_name,
+                is_wrapped=True,
+              )
+            )
+  return results
+
+
 def scan_module(path: Path) -> tuple[list[ConfigurableInfo], set[str]]:
   """
-  Scan a Python module for @configurable decorated items and type aliases.
+  Scan a Python module for @configurable items, wrap_external calls, and type aliases.
 
   Returns:
       Tuple of (list of ConfigurableInfo, set of alias names)
@@ -481,14 +673,19 @@ def scan_module(path: Path) -> tuple[list[ConfigurableInfo], set[str]]:
   source = path.read_text(encoding="utf-8")
   tree = ast.parse(source)
 
-  configurable_aliases = _extract_configurable_aliases(tree)
+  configurable_aliases, wrap_aliases = _extract_configurable_aliases(tree)
   type_aliases = extract_primitive_aliases(tree)
 
-  results: list[ConfigurableInfo] = []
+  # Pass 1: Collect all names that refer to configurations in this module
+  config_names = _collect_config_names(tree, configurable_aliases, wrap_aliases)
 
+  # Pass 2: Extract information for each configurable item (wrapped or decorated)
+  results = _extract_wrapped_configs(tree, wrap_aliases)
+
+  # Pass 3: find decorated items (using config_names for implicit hyper detection)
   for node in ast.walk(tree):
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-      info = _scan_function(node, configurable_aliases)
+      info = _scan_function(node, configurable_aliases, config_names)
       if info:
         results.append(info)
     elif isinstance(node, ast.ClassDef):

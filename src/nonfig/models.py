@@ -76,16 +76,14 @@ class MakeableModel[R](BaseModel):
 
   model_config = ConfigDict(
     arbitrary_types_allowed=True,
-    validate_assignment=True,
+    validate_assignment=False,
     extra="ignore",
     frozen=True,
   )
 
-  # Internal metadata for optimized make()
-  # _make_fields: list of (field_name, is_nested)
-  # _has_nested: bool indicating if any field is nested
-  _make_fields: list[tuple[str, bool]] = PrivateAttr(default_factory=list)
-  _has_nested: bool = PrivateAttr(default=False)
+  # Internal metadata for optimized make(): (make_fields, has_nested)
+  # Pre-consolidated to reduce Pydantic's PrivateAttr initialization overhead
+  _nc_meta: tuple[list[tuple[str, bool]], bool] | None = PrivateAttr(default=None)
 
   def make(self) -> R:
     """Create an instance of the target from this config.
@@ -99,17 +97,15 @@ class MakeableModel[R](BaseModel):
     assert private is not None
 
     # Initialize metadata if not already done (once per instance)
-    if not private["_make_fields"]:
+    if private["_nc_meta"] is None:
       config_cls = type(self)
       # If class is guaranteed to have no nested fields, we can bypass calculation
       if config_cls.__dict__.get("_is_always_leaf"):
         # Set a sentinel to avoid repeating this check
-        private["_make_fields"] = [("_", False)]
+        private["_nc_meta"] = ([("_", False)], False)
         return self._make_impl()
 
-      fields, has_nested = calculate_make_fields(self)
-      private["_make_fields"] = fields
-      private["_has_nested"] = has_nested
+      private["_nc_meta"] = calculate_make_fields(self)
 
     return self._make_impl()
 
@@ -356,11 +352,13 @@ class BoundFunction[R]:
     self,
     func: Callable[..., R],
     hyper_kwargs: dict[str, Any],
+    name: str,
+    doc: str | None = None,
   ) -> None:
     self._func = func
     self._hyper_kwargs = hyper_kwargs
-    self._name = func.__name__
-    self._doc = func.__doc__
+    self._name = name
+    self._doc = doc
 
   @property
   def __name__(self) -> str:
@@ -377,6 +375,9 @@ class BoundFunction[R]:
 
   def __call__(self, *args: Any, **kwargs: Any) -> R:
     """Call the function with bound hyperparameters."""
+    # Optimization: avoid dict merge if no call-time kwargs
+    if not kwargs:
+      return self._func(*args, **self._hyper_kwargs)
     return self._func(*args, **self._hyper_kwargs, **kwargs)
 
   def __getattr__(self, name: str) -> Any:

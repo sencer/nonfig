@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 from textwrap import dedent
 
-from nonfig.stubs.generator import generate_stub_content
+from nonfig.stubs.generator import (
+  _generate_non_configurable_class_stub,
+  generate_stub_content,
+)
 from nonfig.stubs.scanner import scan_module
 
 
@@ -140,3 +144,182 @@ def test_import_filtering(tmp_path: Path) -> None:
   # Stubs usually only contain signature. `sys.platform` is in body.
   # So `sys` should be REMOVED if it's not in the signature.
   assert "import sys" not in content
+
+
+def test_stub_generation_dotted_names(tmp_path: Path) -> None:
+  """
+  Verify that dotted expressions in wrap_external are cleaned up for return types in stubs.
+  """
+  source_file = tmp_path / "complex_wrap.py"
+  source_file.write_text(
+    dedent("""
+        from nonfig import wrap_external
+        MyConfig = wrap_external(torch.optim.Adam)
+    """),
+    encoding="utf-8",
+  )
+
+  infos, aliases = scan_module(source_file)
+  content = generate_stub_content(infos, source_file, aliases)
+
+  # Should preserve the full dotted name for correctness in stubs
+  assert "class MyConfig(_NCMakeableModel[torch.optim.Adam]):" in content
+
+
+def test_stub_method_decorator_filtering():
+  """
+  Verify that external decorators are filtered out of method stubs
+  to prevent NameErrors in .pyi files.
+  """
+  source = """
+class DataProcessor:
+    @expensive_computation_tracker
+    @property
+    def data(self):
+        return []
+
+    @validate_call
+    def process(self, x: int):
+        pass
+"""
+  tree = ast.parse(source)
+  class_node = next(node for node in tree.body if isinstance(node, ast.ClassDef))
+  stub = _generate_non_configurable_class_stub(class_node)
+
+  assert "@expensive_computation_tracker" not in stub
+  assert "@validate_call" not in stub
+  assert "@property" in stub
+
+
+def test_scanner_multiple_assignments(tmp_path: Path):
+  """
+  Verify that the scanner detects wrap_external calls in multiple assignments.
+  """
+  source_file = tmp_path / "multi_wrap.py"
+  source_file.write_text(
+    """
+from nonfig import wrap_external
+ConfigA, ConfigB = wrap_external(int), wrap_external(float)
+""",
+    encoding="utf-8",
+  )
+
+  infos, _ = scan_module(source_file)
+  names = {info.name for info in infos}
+  assert "ConfigA" in names
+  assert "ConfigB" in names
+  assert len(infos) == 2
+
+
+def test_preserve_essential_class_decorators(tmp_path: Path):
+  source = dedent("""
+        from dataclasses import dataclass
+        from typing import final, runtime_checkable, Protocol
+
+        @dataclass
+        class MyData:
+            x: int
+
+        @final
+        class Locked:
+            pass
+
+        @runtime_checkable
+        class MyProto(Protocol):
+            def execute(self) -> None: ...
+
+        @custom_decorator
+        class Custom:
+            pass
+    """)
+
+  source_file = tmp_path / "deco_test.py"
+  source_file.write_text(source, encoding="utf-8")
+
+  # We scan with empty infos because these are non-configurable classes
+  # scan_module returns (infos, aliases)
+  infos, aliases = scan_module(source_file)
+  content = generate_stub_content(infos, source_file, aliases)
+
+  print("\nGenerated Stub Content:")
+  print(content)
+
+  # Check preserved
+  assert "@dataclass" in content
+  assert "@final" in content
+  assert "@runtime_checkable" in content
+
+  # Check stripped
+  assert "@custom_decorator" not in content
+
+  # Check imports
+  assert "from dataclasses import dataclass" in content
+  assert "from typing import final" in content or "from typing import" in content
+  assert "runtime_checkable" in content
+
+
+def test_stub_generator_import_handling_for_decorators(tmp_path: Path):
+  """Verify that using decorators adds necessary imports to the stub."""
+  source = dedent("""
+        from typing import final
+        @final
+        class Secret:
+            pass
+    """)
+  source_file = tmp_path / "secret.py"
+  source_file.write_text(source, encoding="utf-8")
+
+  infos, aliases = scan_module(source_file)
+  content = generate_stub_content(infos, source_file, aliases)
+
+  assert "from typing import final" in content or "from typing import" in content
+
+
+def test_stub_dataclass_import_preservation(tmp_path: Path):
+  """
+  Issue 3: Verify that dataclass import is correctly added to stubs
+  when non-configurable dataclasses are present.
+  """
+  source_file = tmp_path / "data.py"
+  source_file.write_text(
+    dedent("""
+            from dataclasses import dataclass
+            @dataclass
+            class Point:
+                x: int
+                y: int
+        """),
+    encoding="utf-8",
+  )
+
+  infos, _ = scan_module(source_file)
+  content = generate_stub_content(infos, source_file, _)
+
+  # Check that dataclass is imported
+  assert "from dataclasses import dataclass" in content
+  assert "@dataclass" in content
+
+
+def test_stub_generator_custom_wrap_alias(tmp_path: Path):
+  """
+  Verify that custom aliases for wrap_external are correctly handled
+  and don't leak into public constants.
+  """
+  source_file = tmp_path / "custom_alias.py"
+  source_file.write_text(
+    dedent("""
+            from nonfig import wrap_external as wrap
+            MyConfig = wrap(int)
+        """),
+    encoding="utf-8",
+  )
+
+  infos, aliases = scan_module(source_file)
+  assert any(info.name == "MyConfig" for info in infos)
+
+  content = generate_stub_content(infos, source_file, aliases)
+
+  # MyConfig should be in configurable stubs, not constants
+  assert "class MyConfig" in content
+  # It should NOT be in constants as 'MyConfig: ...' or similar
+  assert content.count("class MyConfig") == 1
