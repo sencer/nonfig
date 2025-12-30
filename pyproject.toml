@@ -118,6 +118,7 @@ max-args = 6
 "__init__.py" = [
     "F401",    # Allow unused imports in __init__.py
 ]
+"src/nonfig/cli/*.py" = ["T201", "PTH207"]
 "src/nonfig/extraction.py" = ["BLE001"]
 "src/nonfig/models.py" = ["S101"]
 "src/nonfig/stubs/scanner.py" = ["PLR1702"]

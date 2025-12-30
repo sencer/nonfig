@@ -5,12 +5,57 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING, Any, TypeVar, get_args, get_origin
 
+from pydantic import ValidationError
+
+from nonfig.models import ConfigValidationError
+
 if TYPE_CHECKING:
   from collections.abc import Callable
+
+  from nonfig.models import MakeableModel
 
 __all__ = ["run_cli"]
 
 T = TypeVar("T")
+
+
+def _print_help(
+  config_cls: type[MakeableModel[Any]],
+  prefix: str = "",
+  visited: set[type[Any]] | None = None,
+) -> None:
+  """Recursively print configuration options."""
+  if visited is None:
+    visited = set()
+
+  if config_cls in visited:
+    return
+  visited.add(config_cls)
+
+  for name, field in config_cls.model_fields.items():
+    if name.startswith("_"):
+      continue
+
+    # Determine if it's a nested config
+    field_type = field.annotation
+    nested_config_cls = _get_nested_config_cls(field_type)
+
+    # Get default value string
+    default = field.default
+    default_str = str(default)
+    if hasattr(default, "__repr__"):
+      default_str = default.__repr__()
+
+    key = f"{prefix}{name}"
+
+    if nested_config_cls:
+      print(f"{key} (nested config):")
+      _print_help(nested_config_cls, prefix=f"{key}.", visited=visited)
+    else:
+      type_name = str(field_type)
+      # Clean up type name for better readability
+      type_name = type_name.replace("typing.", "").replace("nonfig.typedefs.", "")
+      print(f"{key} [{type_name}] = {default_str}")
 
 
 def _parse_value(value_str: str, target_type: type[Any] | None) -> Any:
@@ -195,13 +240,33 @@ def run_cli(
     raise TypeError(f"Target {target} is not configurable (no .Config attribute)")
 
   # Parse CLI arguments
+  # Check for help
+  if any(arg in ("--help", "-h") for arg in args):
+    print(f"Configuration for {target.__name__}:")
+    # Cast to MakeableModel type for the helper
+    from typing import cast
+
+    from nonfig.models import MakeableModel
+
+    if issubclass(config_cls, MakeableModel):
+      _print_help(cast("type[MakeableModel[Any]]", config_cls))
+    else:
+      # Fallback for non-MakeableModel configs (shouldn't happen with @configurable)
+      print("  (Help not available for this config type)")
+    sys.exit(0)
+
   raw_overrides = _parse_overrides(args)
 
   # Apply type coercion
   typed_overrides = _apply_type_coercion(raw_overrides, config_cls)
 
-  # Create config and make instance
-  config = config_cls(**typed_overrides)
-  result: T = config.make()
-
-  return result
+  try:
+    # Create config and make instance
+    config = config_cls(**typed_overrides)
+    result: T = config.make()
+    return result
+  except ValidationError as e:
+    # Wrap and print user-friendly error
+    readable_error = ConfigValidationError(e, config_cls.__name__)
+    print(f"\n{readable_error}", file=sys.stderr)
+    sys.exit(1)
