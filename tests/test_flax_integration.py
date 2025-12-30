@@ -2,17 +2,27 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
+try:
+  import flax.linen as nn
+  from jax import random
+  import jax.numpy as jnp
+  from jaxtyping import Array, Float, jaxtyped
+
+  HAS_JAX_FLAX = True
+except ImportError:
+  HAS_JAX_FLAX = False
+
 from beartype import beartype
-import flax.linen as nn
-from jax import random
-import jax.numpy as jnp
-from jaxtyping import Array, Float, jaxtyped
 
 from nonfig import Hyper, configurable
 
+pytestmark = pytest.mark.skipif(not HAS_JAX_FLAX, reason="flax/jax not installed")
+
 
 @configurable
-class MyLayer(nn.Module):
+class MyLayer(nn.Module):  # type: ignore
   features: Hyper[int]
   dtype: Hyper[Any] = jnp.float32
   # Verify jaxtyping metadata preservation in Flax field
