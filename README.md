@@ -231,7 +231,7 @@ This is useful for passing pre-instantiated objects, heavy resources (like datab
 | **Reused `make()`** | ~0.47µs | Hot path: repeatedly calling make() |
 | **Full lifecycle** | ~3.80µs | `Config(...).make()` |
 
-*Measured on Python 3.13, Linux x86_64, Intel(R) Core(TM) i5-7500T CPU @ 2.70GHz.*
+*Measured on Python 3.13, Linux x86_64, Intel(R) Core(TM) i5-7500T CPU @ 2.70GHz, 16GB RAM.*
 
 ### High-Performance Usage
 
