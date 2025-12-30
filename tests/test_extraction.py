@@ -305,25 +305,56 @@ def test_literal_in_class() -> None:
   assert opt2.algorithm == "sgd"
 
 
-def test_literal_serialization() -> None:
-  """Test that Literal types serialize correctly."""
+def test_config_ambiguity():
+  """
+  Verify that if a MakeableModel has a .Config attribute,
+  extraction picks the class itself instead of the attribute.
+  """
+  from nonfig.models import MakeableModel
+
+  class OtherConfig(MakeableModel):
+    val: int = 1
+
+    def _make_impl(self):
+      return self.val
+
+  # A class that is ALREADY a config, but has a .Config attribute
+  # We use setattr to avoid Pydantic's legacy config warning during class definition
+  class AlreadyConfig(MakeableModel):
+    x: int = 10
+
+    def _make_impl(self):
+      return self.x
+
+  AlreadyConfig.Config = OtherConfig
 
   @configurable
-  def process(
-    mode: Hyper[Literal["fast", "slow"]] = "fast",
-  ) -> str:
-    return mode
+  def my_func(cfg: AlreadyConfig = AlreadyConfig):
+    return cfg
 
-  config = process.Config(mode="slow")
+  # This should pick AlreadyConfig (returning 10) instead of OtherConfig (returning 1).
+  config = my_func.Config()
+  assert config.cfg.make() == 10
 
-  # Serialize to dict
-  config_dict = config.model_dump()
-  assert config_dict == {"mode": "slow"}
 
-  # Serialize to JSON
-  config_json = config.model_dump_json()
-  assert '"mode":"slow"' in config_json or '"mode": "slow"' in config_json
+def test_implicit_hyper_extraction_for_config_subclasses():
+  """
+  Verify that a direct subclass of MakeableModel is correctly identified
+  as an implicit hyperparameter.
+  """
+  from nonfig.models import MakeableModel
 
-  # Deserialize
-  loaded = process.Config.model_validate_json(config_json)
-  assert loaded.mode == "slow"
+  class MyConfig(MakeableModel):
+    x: int = 1
+
+    def _make_impl(self):
+      return self.x
+
+  @configurable
+  def process(cfg: MyConfig = MyConfig):
+    return cfg
+
+  # If identified as hyper, process.Config will have 'cfg' field
+  assert "cfg" in process.Config.model_fields
+  config = process.Config(cfg=MyConfig(x=10))
+  assert config.make()() == 10

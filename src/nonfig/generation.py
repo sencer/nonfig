@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
   from nonfig.typedefs import Configurable, ConfigurableFunc
 
-__all__ = ["configurable"]
+__all__ = ["configurable", "wrap_external"]
 
 # Lock for thread-safe decoration
 _decoration_lock = threading.Lock()
@@ -61,13 +61,19 @@ def _to_pascal_case(name: str) -> str:
     my_func -> MyFunc
     _private -> _Private
     __dunder -> __Dunder
+    CallableObj -> CallableObj
   """
   # Preserve leading underscores
   stripped = name.lstrip("_")
   leading_underscores = "_" * (len(name) - len(stripped))
 
-  # PascalCase the rest
-  pascal = "".join(word.capitalize() for word in stripped.split("_"))
+  # PascalCase the rest, but avoid lowering existing uppercase if it's already PascalCase-ish
+  def capitalize_word(word: str) -> str:
+    if not word:
+      return ""
+    return word[0].upper() + word[1:]
+
+  pascal = "".join(capitalize_word(word) for word in stripped.split("_"))
 
   return leading_underscores + pascal
 
@@ -170,6 +176,145 @@ def configurable[T](
   raise TypeError(
     f"@configurable requires a class or function, got {type(target).__name__}: {target!r}"
   )
+
+
+@overload
+def wrap_external[T](target: type[T], *, overrides: dict[str, Any] | None = None) -> type[MakeableModel[T]]: ...  # pyright: ignore[reportOverlappingOverload] # fmt: skip
+
+
+@overload
+def wrap_external[T, **P](
+  target: Callable[P, T], *, overrides: dict[str, Any] | None = None
+) -> type[MakeableModel[Callable[P, T]]]: ...
+
+
+def wrap_external(
+  target: type[Any] | Callable[..., Any],
+  *,
+  overrides: dict[str, Any] | None = None,
+) -> type[MakeableModel[Any]]:
+  """
+  Wrap an external class or function to make it configurable without modification.
+
+  Returns a Config class (MakeableModel) that can be used in other configs.
+  Calling .make() on the returned config will instantiate the original target.
+
+  Args:
+    target: The class or function to wrap.
+    overrides: Optional dictionary mapping parameter names to types/configs
+               to override the extracted ones.
+
+  Example:
+    ```python
+    from torch.optim import Adam
+    AdamConfig = wrap_external(Adam)
+
+    @configurable
+    @dataclass
+    class TrainConfig:
+      optimizer: AdamConfig = DEFAULT
+
+    config = TrainConfig(optimizer=AdamConfig(lr=0.01))
+    trainer = config.make()
+    ```
+  """
+  target_name = getattr(target, "__name__", type(target).__name__)
+  if isinstance(target, type):
+    # Check for positional-only arguments which we cannot support as keyword-only fields
+    sig = inspect.signature(target)
+    if any(
+      p.kind == inspect.Parameter.POSITIONAL_ONLY for p in sig.parameters.values()
+    ):
+      raise ValueError(
+        f"Cannot wrap '{target_name}' because it contains positional-only parameters. "
+        + "Please provide a wrapper function that accepts these parameters as regular arguments "
+        + "and passes them positionally to the target."
+      )
+
+    params = extract_class_params(target)
+    if overrides:
+      _apply_wrap_overrides(target, params, overrides)
+    return cast("type[MakeableModel[Any]]", _create_class_config(target, params))
+
+  if callable(target):
+    # Check for positional-only arguments which we cannot support as keyword-only fields
+    sig = inspect.signature(target)
+    if any(
+      p.kind == inspect.Parameter.POSITIONAL_ONLY for p in sig.parameters.values()
+    ):
+      raise ValueError(
+        f"Cannot wrap '{target_name}' because it contains positional-only parameters. "
+        + "Please provide a wrapper function that accepts these parameters as regular arguments "
+        + "and passes them positionally to the target."
+      )
+
+    params = extract_function_hyper_params(target, all_params=True)
+    if overrides:
+      _apply_wrap_overrides(target, params, overrides)
+    return cast("type[MakeableModel[Any]]", _create_function_config(target, params))
+
+  raise TypeError(
+    f"wrap_external requires a class or function, got {type(target).__name__}: {target!r}"
+  )
+
+
+def _apply_wrap_overrides(
+  target: Any,
+  params: dict[str, tuple[Any, FieldInfo]],
+  overrides: dict[str, Any],
+) -> None:
+  """Apply parameter overrides to extracted parameters."""
+  from nonfig.extraction import create_field_info, unwrap_hyper
+
+  target_name = getattr(target, "__name__", type(target).__name__)
+  sig = inspect.signature(target)
+  has_kwargs = any(
+    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+  )
+
+  for name, new_type in overrides.items():
+    if name in params:
+      # Re-create field info with new type
+      # We preserve the existing default if possible
+      _, field_info = params[name]
+      default = field_info.default
+      # Pydantic uses PydanticUndefined for required fields, but create_field_info expects inspect.Parameter.empty
+      if default is PydanticUndefined:
+        default = inspect.Parameter.empty
+
+      try:
+        inner_type, constraints, is_leaf = unwrap_hyper(new_type)
+      except Exception as e:
+        raise TypeError(
+          f"Invalid type override for parameter '{name}': {new_type!r}. "
+          + "Expected a type or Hyper[T] annotation."
+        ) from e
+
+      params[name] = create_field_info(
+        name, inner_type, default, constraints, target_name, is_leaf=is_leaf
+      )
+    elif has_kwargs:
+      # Add new field for **kwargs
+      try:
+        inner_type, constraints, is_leaf = unwrap_hyper(new_type)
+      except Exception as e:
+        raise TypeError(
+          f"Invalid type override for parameter '{name}': {new_type!r}. "
+          + "Expected a type or Hyper[T] annotation."
+        ) from e
+
+      params[name] = create_field_info(
+        name,
+        inner_type,
+        inspect.Parameter.empty,
+        constraints,
+        target_name,
+        is_leaf=is_leaf,
+      )
+    else:
+      raise ValueError(
+        f"Cannot override parameter '{name}' for '{target_name}' because it is not in the signature and the target does not accept **kwargs."
+      )
 
 
 def _configurable_class[T](cls: type[T]) -> type[T]:
@@ -429,19 +574,21 @@ def _create_function_config(
   params: dict[str, tuple[Any, FieldInfo]],
 ) -> type[MakeableModel[Callable[..., Any]]]:
   """Create a Config class for a function."""
+  func_name = getattr(func, "__name__", type(func).__name__)
+
   # Check for reserved names
   for name in params:
     if name in _ALL_RESERVED_NAMES:
       source = "Pydantic" if name in _RESERVED_PYDANTIC_NAMES else "nonfig"
       raise ValueError(
-        f"Parameter '{name}' is reserved by {source} and cannot be used as a Config field. Please rename this parameter in function '{func.__name__}'."
+        f"Parameter '{name}' is reserved by {source} and cannot be used as a Config field. Please rename this parameter in function '{func_name}'."
       )
 
   # The return type is a callable that takes non-Hyper args
   return_type = Callable[..., Any]
 
   # Create PascalCase config name (my_func -> MyFuncConfig)
-  config_name = _to_pascal_case(func.__name__) + "Config"
+  config_name = _to_pascal_case(func_name) + "Config"
 
   # Create the model dynamically - pyright can't infer the type here
   config_cls = cast(
@@ -482,10 +629,13 @@ def _create_function_fast_make(
   maybe_nested: set[str] | None = None,
 ) -> Callable[..., BoundFunction[Any]]:
   """Create a static fast_make method for functions."""
+  func_name = getattr(func, "__name__", type(func).__name__)
+  func_doc = func.__doc__
+
   if is_leaf:
 
     def fast_make_leaf(**kwargs: Any) -> BoundFunction[Any]:
-      return BoundFunction(func, kwargs)
+      return BoundFunction(func, kwargs, func_name, func_doc)
 
     return fast_make_leaf
 
@@ -498,7 +648,7 @@ def _create_function_fast_make(
         made = recursive_make(val)
         if made is not val:
           kwargs[name] = made
-    return BoundFunction(func, kwargs)
+    return BoundFunction(func, kwargs, func_name, func_doc)
 
   return fast_make_nested
 
@@ -509,10 +659,13 @@ def _create_function_make_method(
   maybe_nested: set[str] | None = None,
 ) -> Callable[[MakeableModel[Any]], BoundFunction[Any]]:
   """Create the make() method for a function Config."""
+  func_name = getattr(func, "__name__", type(func).__name__)
+  func_doc = func.__doc__
+
   if is_leaf:
 
     def make_leaf(self: MakeableModel[Any]) -> BoundFunction[Any]:
-      return BoundFunction(func, self.__dict__)
+      return BoundFunction(func, self.__dict__, func_name, func_doc)
 
     return make_leaf
 
@@ -540,7 +693,7 @@ def _create_function_make_method(
       has_nested = private["_has_nested"]
 
     if not has_nested:
-      return BoundFunction(func, data)
+      return BoundFunction(func, data, func_name, func_doc)
 
     updates: dict[str, Any] = {}
     for name in nested_names:
@@ -550,9 +703,9 @@ def _create_function_make_method(
         updates[name] = made
 
     if not updates:
-      return BoundFunction(func, data)
+      return BoundFunction(func, data, func_name, func_doc)
 
-    return BoundFunction(func, data | updates)
+    return BoundFunction(func, data | updates, func_name, func_doc)
 
   return make_nested
 

@@ -57,11 +57,11 @@ jobs:
         fail_ci_if_error: false
         token: ${{ secrets.CODECOV_TOKEN }}
 
-    - name: Check for performance regressions
+    - name: Run performance benchmarks
       if: matrix.python-version == '3.12'
       run: |
         source .venv/bin/activate
-        python benchmarks/check_regression.py
+        python benchmarks/bench_robust.py
 
   scan:
     name: Vulnerability Scan

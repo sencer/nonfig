@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import Any, cast
 
 from nonfig.stubs.scanner import ConfigurableInfo, HyperParam, scan_module
 
@@ -342,7 +343,7 @@ def _generate_config_class(info: ConfigurableInfo, aliases: set[str]) -> str:
 
   # Determine make() return type
   if info.is_class:
-    make_return = info.name
+    make_return = info.return_type
   # For functions, make() returns a callable
   elif info.call_params:
     call_param_types = ", ".join(t for _, t, _ in info.call_params)
@@ -365,7 +366,10 @@ def _generate_config_class(info: ConfigurableInfo, aliases: set[str]) -> str:
   )
 
   if not info.params:
-    lines.append("        pass")
+    lines.append("        def __init__(self) -> None: ...")
+    # make() method - marked as override since MakeableModel defines it
+    lines.append("        @override")
+    lines.append(f"        def make(self) -> {make_return}: ...")
   else:
     # Field declarations - transform non-primitive types to .Config
     for param in info.params:
@@ -558,6 +562,127 @@ def _extract_imports(tree: ast.Module) -> tuple[list[str], list[str]]:
   return future_imports, other_imports
 
 
+def _is_wrap_external_call(
+  node: ast.expr, wrap_aliases: set[str] | None = None
+) -> bool:
+  """Check if an expression is a call to wrap_external or wrap."""
+  aliases = wrap_aliases or {"wrap_external", "wrap"}
+  if not isinstance(node, ast.Call):
+    return False
+  func = node.func
+  return (isinstance(func, ast.Name) and func.id in aliases) or (
+    isinstance(func, ast.Attribute) and func.attr in aliases
+  )
+
+
+def _is_allowed_decorator(node: ast.expr, allowed_names: set[str]) -> bool:
+  """Check if a decorator is in the allowed list, handling calls like @dataclass()."""
+  if isinstance(node, ast.Name):
+    return node.id in allowed_names
+  if isinstance(node, ast.Attribute):
+    return node.attr in allowed_names
+  if isinstance(node, ast.Call):
+    return _is_allowed_decorator(node.func, allowed_names)
+  return False
+
+
+def _generate_non_configurable_class_stub(node: ast.ClassDef) -> str:
+  """Generate a stub for a non-configurable class."""
+  # Common class decorators that affect typing/structure
+  allowed_class_decorators = {
+    "dataclass",
+    "final",
+    "runtime_checkable",
+    "sealed",
+  }
+  filtered_class_decorators: list[ast.expr] = [
+    d for d in node.decorator_list if _is_allowed_decorator(d, allowed_class_decorators)
+  ]
+
+  stub_body: list[ast.stmt] = []
+  for item in node.body:
+    if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
+      # Filter decorators to keep only standard ones in stubs
+      allowed_decorators = {
+        "property",
+        "classmethod",
+        "staticmethod",
+        "abstractmethod",
+        "override",
+      }
+      filtered_decorators: list[ast.expr] = [
+        d for d in item.decorator_list if _is_allowed_decorator(d, allowed_decorators)
+      ]
+
+      # Replace method body with ... but keep docstring
+      method_body: list[ast.stmt] = []
+      if (
+        item.body
+        and isinstance(item.body[0], ast.Expr)
+        and isinstance(item.body[0].value, ast.Constant)
+      ):
+        # Keep docstring
+        method_body.append(item.body[0])
+      method_body.append(ast.Expr(value=ast.Constant(value=...)))
+
+      # We use cast(Any, ...) because basedpyright cannot statically verify that type(item)
+      # is a constructor that accepts these specific arguments.
+      stub_method = cast("Any", type(item))(
+        name=item.name,
+        args=item.args,
+        body=method_body,
+        decorator_list=filtered_decorators,
+        returns=item.returns,
+        type_comment=item.type_comment,
+        type_params=getattr(item, "type_params", []),
+        lineno=item.lineno,
+        col_offset=item.col_offset,
+      )
+      stub_body.append(stub_method)
+    elif isinstance(item, ast.AnnAssign):
+      # Skip 'Config' annotations - they're for @configurable classes
+      if isinstance(item.target, ast.Name) and item.target.id == "Config":
+        continue
+      stub_item = ast.AnnAssign(
+        target=item.target,
+        annotation=item.annotation,
+        value=ast.Constant(value=...) if item.value else None,
+        simple=item.simple,
+        lineno=item.lineno,
+        col_offset=item.col_offset,
+      )
+      stub_body.append(stub_item)
+    elif isinstance(item, ast.Assign):
+      stub_item = ast.Assign(
+        targets=item.targets,
+        value=ast.Constant(value=...),
+        type_comment=item.type_comment,
+        lineno=item.lineno,
+        col_offset=item.col_offset,
+      )
+      stub_body.append(stub_item)
+    elif isinstance(item, ast.Pass):
+      stub_body.append(item)
+    elif isinstance(item, ast.Expr) and isinstance(item.value, ast.Constant):
+      # Keep docstrings
+      stub_body.append(item)
+
+  if not stub_body:
+    stub_body = [ast.Pass()]
+
+  stub_class = ast.ClassDef(
+    name=node.name,
+    bases=node.bases,
+    keywords=node.keywords,
+    body=stub_body,
+    decorator_list=filtered_class_decorators,
+    type_params=getattr(node, "type_params", []),
+    lineno=node.lineno,
+    col_offset=node.col_offset,
+  )
+  return ast.unparse(stub_class)
+
+
 def _extract_public_items(
   tree: ast.Module,
   configurable_names: set[str],
@@ -580,55 +705,14 @@ def _extract_public_items(
     if isinstance(node, ast.ClassDef):
       if node.name.startswith("_") or node.name in configurable_names:
         continue
-      # Generate stub for non-configurable class
-      stub_body: list[ast.stmt] = []
-      for item in node.body:
-        if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
-          # Replace method body with ...
-          stub_method = ast.FunctionDef(
-            name=item.name,
-            args=item.args,
-            body=[ast.Expr(value=ast.Constant(value=...))],
-            decorator_list=[],
-            returns=item.returns,
-            type_comment=item.type_comment,
-            type_params=getattr(item, "type_params", []),
-            lineno=item.lineno,
-            col_offset=item.col_offset,
-          )
-          stub_body.append(stub_method)
-        elif isinstance(item, ast.AnnAssign):
-          # Skip 'Config' annotations - they're for @configurable classes
-          if isinstance(item.target, ast.Name) and item.target.id == "Config":
-            continue
-          stub_body.append(item)
-        elif isinstance(item, ast.Assign | ast.Pass):
-          stub_body.append(item)
-        elif isinstance(item, ast.Expr) and isinstance(item.value, ast.Constant):
-          # Keep docstrings
-          stub_body.append(item)
-
-      if not stub_body:
-        stub_body = [ast.Pass()]
-
-      stub_class = ast.ClassDef(
-        name=node.name,
-        bases=node.bases,
-        keywords=node.keywords,
-        body=stub_body,
-        decorator_list=[],
-        type_params=getattr(node, "type_params", []),
-        lineno=node.lineno,
-        col_offset=node.col_offset,
-      )
-      class_stubs.append(ast.unparse(stub_class))
+      class_stubs.append(_generate_non_configurable_class_stub(node))
 
     elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
       # Skip private and configurable functions
       if node.name.startswith("_") or node.name in configurable_names:
         continue
       # Generate stub for non-configurable function
-      stub_func = ast.FunctionDef(
+      stub_func = cast("Any", type(node))(
         name=node.name,
         args=node.args,
         body=[ast.Expr(value=ast.Constant(value=...))],
@@ -656,23 +740,27 @@ def _extract_public_items(
     elif isinstance(node, ast.Assign):
       # Simple assignments (constants/type aliases)
       for target in node.targets:
-        if isinstance(target, ast.Name) and not target.id.startswith("_"):
-          # Check if we know this is a type alias
-          is_alias = target.id in aliases
-          value_str = ast.unparse(node.value)
+        if not isinstance(target, ast.Name) or target.id.startswith("_"):
+          continue
 
-          if is_alias:
-            constant_stubs.append(f"{target.id} = {value_str}")
-          elif "[" in value_str or (
-            value_str
-            and value_str[0].isupper()
-            and not value_str.startswith(('"', "'"))
-          ):
-            # Fallback heuristic: exclude string literals starting with quote
-            constant_stubs.append(f"{target.id} = {value_str}")
-          else:
-            constant_stubs.append(f"{target.id}: ...")
-          break
+        # Skip wrap_external calls - they are handled in configurable_stubs
+        if _is_wrap_external_call(node.value, aliases):
+          continue
+
+        # Check if we know this is a type alias
+        is_alias = target.id in aliases
+        value_str = ast.unparse(node.value)
+
+        if is_alias:
+          constant_stubs.append(f"{target.id} = {value_str}")
+        elif "[" in value_str or (
+          value_str and value_str[0].isupper() and not value_str.startswith(('"', "'"))
+        ):
+          # Fallback heuristic: exclude string literals starting with quote
+          constant_stubs.append(f"{target.id} = {value_str}")
+        else:
+          constant_stubs.append(f"{target.id}: ...")
+        break
 
     # Skip if __name__ == "__main__": blocks (they're ast.If nodes, handled implicitly by not matching)
 
@@ -685,7 +773,16 @@ def _generate_configurable_stubs(
 
   stubs: list[str] = []
   for info in infos:
-    if info.is_class:
+    if info.is_wrapped:
+      # For wrapped items, the target IS the config class itself
+      lines = [
+        f"class {info.name}(_NCMakeableModel[{info.return_type}]):",
+        "    def __init__(self, **kwargs: Any) -> None: ...",
+        "    @override",
+        f"    def make(self) -> {info.return_type}: ...",
+      ]
+      stubs.append("\n".join(lines))
+    elif info.is_class:
       stubs.append(_generate_class_stub(info, aliases))
     else:
       stubs.append(_generate_function_stub(info, aliases))
@@ -750,7 +847,7 @@ def _build_import_section(
   # Note: We alias MakeableModel to _NCMakeableModel, so we don't
   # add MakeableModel to already_imported. If the user imports it,
   # it's distinct from our internal base class alias.
-  already_imported: set[str] = {"override"}
+  already_imported: set[str] = set()
   if has_callable:
     already_imported.add("Callable")
   if has_default:
@@ -767,16 +864,28 @@ def _build_import_section(
   std_imports: list[str] = []
   if has_callable:
     std_imports.append("from collections.abc import Callable")
-  if "override" in used_names:
-    std_imports.append("from typing import override")
-  if "Any" in used_names:
-    std_imports.append("from typing import Any")
-  if "TypedDict" in used_names:
-    std_imports.append("from typing import TypedDict")
-  if "Protocol" in used_names:
-    std_imports.append("from typing import Protocol")
-  if "ClassVar" in used_names:
-    std_imports.append("from typing import ClassVar")
+
+  # Detect common typing decorators/types
+  typing_names = {
+    "Annotated",
+    "Any",
+    "ClassVar",
+    "Literal",
+    "Optional",
+    "Protocol",
+    "TypedDict",
+    "Union",
+    "final",
+    "override",
+    "runtime_checkable",
+    "sealed",
+  }
+  for name in sorted(typing_names):
+    if name in used_names:
+      std_imports.append(f"from typing import {name}")
+
+  if "dataclass" in used_names:
+    std_imports.append("from dataclasses import dataclass")
 
   if std_imports:
     lines.extend(std_imports)

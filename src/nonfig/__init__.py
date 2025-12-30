@@ -4,7 +4,7 @@ __version__ = "0.1.1"
 
 from nonfig.cli.runner import run_cli
 from nonfig.constraints import Ge, Gt, Le, Lt, MaxLen, MinLen, MultipleOf, Pattern
-from nonfig.generation import configurable
+from nonfig.generation import configurable, wrap_external
 from nonfig.loaders import load_json, load_toml, load_yaml
 from nonfig.models import BoundFunction, ConfigValidationError, MakeableModel
 from nonfig.typedefs import DEFAULT, Hyper, Leaf
@@ -35,4 +35,5 @@ __all__ = [
   "load_toml",
   "load_yaml",
   "run_cli",
+  "wrap_external",
 ]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from nonfig.stubs.generator import (
   _filter_type_checking_block,
   _format_docstring,
@@ -61,3 +63,43 @@ def test_should_transform_primitive_containers():
   assert not _should_transform_to_config("Optional[MyClass]", set())
   # Custom type
   assert _should_transform_to_config("MyClass", set())
+
+
+def test_stub_docstring_preservation():
+  """
+  Issue: Docstrings of methods in non-configurable classes are stripped in stubs.
+  """
+  import ast
+  from textwrap import dedent
+
+  from nonfig.stubs.generator import _generate_non_configurable_class_stub
+
+  source = dedent("""
+        class Processor:
+            def process(self, x: int) -> int:
+                \"\"\"Process the input.\"\"\"
+                return x + 1
+    """)
+  tree = ast.parse(source)
+  class_node = next(node for node in tree.body if isinstance(node, ast.ClassDef))
+  stub = _generate_non_configurable_class_stub(class_node)
+
+  assert '"""Process the input."""' in stub
+
+
+def test_scanner_unpacking_assignment_crash(tmp_path: Path):
+  """
+  Issue 1: Scanner crashes on unpacking assignments like A, B = func()
+  due to zip(..., strict=True) mismatch.
+  """
+  from nonfig.stubs.scanner import scan_module
+
+  source_file = tmp_path / "unpacking.py"
+  source_file.write_text(
+    "from nonfig import wrap_external\nA, B = some_function()\n", encoding="utf-8"
+  )
+
+  # This currently crashes with ValueError: zip() argument 2 is shorter than argument 1
+  # We want it to NOT crash.
+  infos, _ = scan_module(source_file)
+  assert len(infos) == 0

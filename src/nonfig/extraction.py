@@ -18,7 +18,16 @@ from typing import (
   get_type_hints,
 )
 
-from annotated_types import BaseMetadata, Ge, Gt, Le, Lt, MaxLen, MinLen, MultipleOf
+from annotated_types import (
+  BaseMetadata,
+  Ge,
+  Gt,
+  Le,
+  Lt,
+  MaxLen,
+  MinLen,
+  MultipleOf,
+)
 from pydantic import Field
 from pydantic.fields import FieldInfo
 
@@ -126,39 +135,57 @@ def extract_constraints(
   leftovers: list[Any] = []
 
   for item in metadata:
+    it_type = type(item)
     is_constraint = False
-    if isinstance(item, Ge):
+
+    # Fast path for common annotated_types (Ge, Le, etc.)
+    if it_type is Ge:
       constraints["ge"] = item.ge
       is_constraint = True
-    elif isinstance(item, Gt):
+    elif it_type is Gt:
       constraints["gt"] = item.gt
       is_constraint = True
-    elif isinstance(item, Le):
+    elif it_type is Le:
       constraints["le"] = item.le
       is_constraint = True
-    elif isinstance(item, Lt):
+    elif it_type is Lt:
       constraints["lt"] = item.lt
       is_constraint = True
-    elif isinstance(item, MinLen):
+    elif it_type is MinLen:
       constraints["min_length"] = item.min_length
       is_constraint = True
-    elif isinstance(item, MaxLen):
+    elif it_type is MaxLen:
       constraints["max_length"] = item.max_length
       is_constraint = True
-    elif isinstance(item, MultipleOf):
+    elif it_type is MultipleOf:
       constraints["multiple_of"] = item.multiple_of
       is_constraint = True
-    elif isinstance(item, PatternConstraint):
+    elif it_type is PatternConstraint:
       constraints["pattern"] = item.pattern
       is_constraint = True
     elif isinstance(item, BaseMetadata):
-      # Handle other annotated_types constraints
+      # Fallback for other annotated_types
       is_constraint = True
-      for attr in ("ge", "gt", "le", "lt", "min_length", "max_length", "multiple_of"):
+      mapping = {
+        "ge": "ge",
+        "gt": "gt",
+        "le": "le",
+        "lt": "lt",
+        "min_length": "min_length",
+        "max_length": "max_length",
+        "multiple_of": "multiple_of",
+      }
+      found_any = False
+      for attr, pydantic_name in mapping.items():
         if hasattr(item, attr):
           val = getattr(item, attr)
           if val is not None:
-            constraints[attr] = val
+            constraints[pydantic_name] = val
+            found_any = True
+
+      if not found_any:
+        # If it's BaseMetadata but we don't handle it, keep it in leftovers
+        leftovers.append(item)
 
     if not is_constraint:
       leftovers.append(item)
@@ -300,33 +327,39 @@ def transform_type_for_nesting(type_ann: Any, is_leaf: bool = False) -> Any:
       return reduce(lambda a, b: a | b, transformed_args)
     return type_ann
 
-  # Check if it's a configurable class
-  if isinstance(type_ann, type):
-    config_cls = getattr(type_ann, "Config", None)
-    if isinstance(config_cls, type) and issubclass(config_cls, MakeableModel):
-      return type_ann | config_cls
+  # Transform configurable classes to T | T.Config
+  config_cls = _get_config_class(type_ann)
+  if config_cls is not None and config_cls is not type_ann:
+    return type_ann | config_cls
 
   return type_ann
 
 
-def _is_configurable_callable(value: Any) -> bool:
-  """Check if value is a configurable function/class (has .Config that is MakeableModel)."""
-  if not callable(value):
-    return False
+def _get_config_class(value: Any) -> type[MakeableModel[Any]] | None:
+  """Get the Config class for a field type or default value, if available."""
+  # Optimization: early return for common primitive types
+  if value is None:
+    return None
+  if isinstance(value, type) and value in {int, float, str, bool}:
+    return None
+
+  # Case 1: value is already a Config class (MakeableModel subclass)
+  if isinstance(value, type) and issubclass(value, MakeableModel):
+    return value
+
+  # Case 2: value is a Config instance (MakeableModel instance)
+  if isinstance(value, MakeableModel):
+    return type(value)
+
+  # Optimization: only check types and callables for the rest
+  if not isinstance(value, type) and not callable(value):
+    return None
+
+  # Case 3: value has a .Config attribute (configurable class or function)
   config_cls = getattr(value, "Config", None)
-  return isinstance(config_cls, type) and issubclass(config_cls, MakeableModel)
+  if isinstance(config_cls, type) and issubclass(config_cls, MakeableModel):
+    return config_cls
 
-
-def _get_config_class(field_type: Any) -> type[MakeableModel[Any]] | None:
-  """Get the Config class for a field type, if available."""
-  if isinstance(field_type, type):
-    # First check if field_type itself is a MakeableModel (e.g., SomeClass.Config)
-    if issubclass(field_type, MakeableModel):
-      return field_type
-    # Then check if field_type has a Config attribute (e.g., configurable class)
-    config_cls = getattr(field_type, "Config", None)
-    if isinstance(config_cls, type) and issubclass(config_cls, MakeableModel):
-      return config_cls
   return None
 
 
@@ -454,9 +487,13 @@ def create_field_info(
       f"DEFAULT can only be used with nested Config types, but parameter '{param_name}' has type '{type_name}'. Use a concrete default value instead."
     )
 
-  # Handle configurable callable as default (fn: inner.Type = inner)
-  if _is_configurable_callable(default_value):
-    config_cls = default_value.Config
+  # Handle configurable items or direct Config classes as defaults
+  if isinstance(default_value, MakeableModel):
+    return (transformed_type, Field(default=default_value, **constraint_kwargs))
+
+  config_cls = _get_config_class(default_value)
+
+  if config_cls is not None:
     default_config = _instantiate_default_config(config_cls, param_name)
     return (transformed_type, Field(default=default_config, **constraint_kwargs))
 
@@ -610,19 +647,23 @@ def _extract_init_params(
 def extract_function_hyper_params(
   func: Callable[..., Any],
   skip_first: bool = False,
+  *,
+  all_params: bool = False,
 ) -> dict[str, tuple[Any, FieldInfo]]:
   """
   Extract Hyper-annotated parameters from a function.
 
-  Only parameters annotated with Hyper[T] are extracted.
+  If all_params is True, all parameters are extracted regardless of Hyper annotation.
+  Otherwise, only parameters annotated with Hyper[T] (or implicit hyper) are extracted.
   Regular parameters are ignored (they become call-time args).
 
   Args:
       func: The function to extract from
       skip_first: If True, skip the first parameter (for methods)
+      all_params: If True, extract all parameters.
   """
   params: dict[str, tuple[Any, FieldInfo]] = {}
-  func_name = func.__name__
+  func_name = getattr(func, "__name__", type(func).__name__)
 
   sig = inspect.signature(func)
   hints = get_type_hints_safe(func)
@@ -639,15 +680,18 @@ def extract_function_hyper_params(
     field_type = hints.get(name, param.annotation)
 
     if field_type is inspect.Parameter.empty:
-      continue
+      if all_params:
+        field_type = Any
+      else:
+        continue
 
     # Only extract Hyper-annotated parameters OR implicit hyper params
-    is_hyper = has_hyper_marker(field_type)
+    is_hyper = all_params or has_hyper_marker(field_type)
 
-    # Check for implicit hyper: default is DEFAULT, MakeableModel, or configurable callable
-    if not is_hyper and isinstance(param.default, (DefaultSentinel, MakeableModel)):
-      is_hyper = True
-    if not is_hyper and _is_configurable_callable(param.default):
+    # Check for implicit hyper: default is DEFAULT, MakeableModel, or configurable item
+    if not is_hyper and (
+      isinstance(param.default, DefaultSentinel) or _get_config_class(param.default)
+    ):
       is_hyper = True
 
     if not is_hyper:
