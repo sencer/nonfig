@@ -25,6 +25,8 @@ dev = [
     "pandas>=2.3.3",
     "pandas-stubs>=2.0.0",
     "pyyaml>=6.0.0",
+    "jaxtyping>=0.2.0",
+    "beartype>=0.15.0",
 ]
 yaml = ["pyyaml>=6.0"]
 
