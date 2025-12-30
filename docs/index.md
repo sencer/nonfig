@@ -42,7 +42,7 @@ pip install nonfig
 pip install nonfig[yaml]
 ```
 
-## Features
+## Core Concepts
 
 ### Classes & Dataclasses
 
@@ -120,6 +120,34 @@ class Network:
 
 **Available constraints:** `Ge` (>=), `Gt` (>), `Le` (≤), `Lt` (<), `MinLen`, `MaxLen`, `MultipleOf`, `Pattern`.
 
+### Inheritance & Propagation
+
+`nonfig` supports automatic inheritance. If you inherit from a `@configurable` class, the subclass is automatically made configurable.
+
+Furthermore, `nonfig` uses **Smart Parameter Propagation**:
+1.  If your subclass accepts `**kwargs` in `__init__`, `nonfig` assumes you are passing arguments to the base class.
+2.  It automatically adds all configurable parameters from the Base class to the Subclass's Config.
+3.  If you explicitly define a parameter in the Subclass, it overrides the Base parameter.
+
+```python
+@configurable
+class Base:
+    def __init__(self, x: int = 1):
+        self.x = x
+
+# ✅ Sub accepts **kwargs, so it inherits 'x' from Base
+class Sub(Base):
+    def __init__(self, y: int = 2, **kwargs):
+        super().__init__(**kwargs)
+        self.y = y
+
+# Config has both x and y!
+config = Sub.Config(x=10, y=20)
+obj = config.make()
+assert obj.x == 10
+assert obj.y == 20
+```
+
 ### Cross-Field Validation
 
 Define a `__config_validate__` hook for validation across multiple fields:
@@ -141,41 +169,18 @@ class Optimizer:
 Optimizer.Config(name="SGD", momentum=None)
 ```
 
-### CLI Runner
+### Leaf Markers
 
-Run configurable targets with command-line overrides:
+By default, any `@configurable` class used as a type hint is transformed into `T | T.Config`. If you want to force a parameter to accept only the raw instance (disabling nested configuration for that field), use `Leaf[T]`:
 
 ```python
-from nonfig import configurable, Hyper, run_cli
+from nonfig import configurable, Leaf
 
 @configurable
-def train(*, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01) -> dict:
-    return {"epochs": epochs, "lr": lr}
-
-if __name__ == "__main__":
-    result = run_cli(train)  # Parse sys.argv
-    print(result)
-```
-
-```bash
-python train.py epochs=100 lr=0.001 optimizer.momentum=0.9
-```
-
-Features:
-- Dot notation for nested configs (`optimizer.lr=0.01`)
-- Automatic type coercion based on Config field types
-
-### Config Loaders
-
-Load configs from JSON, TOML, or YAML files:
-
-```python
-from nonfig import load_json, load_toml, load_yaml
-
-# Load and instantiate
-data = load_toml("config.toml")
-config = Model.Config(**data)
-model = config.make()
+class Processor:
+    def __init__(self, model: Leaf[MyModel]):
+        # 'model' must be a MyModel instance, not MyModel.Config
+        self.model = model
 ```
 
 ### Generic Classes
@@ -199,26 +204,6 @@ T = TypeVar("T")
 class OldStyle(Generic[T]):
     ...
 ```
-
-### Leaf Markers
-
-By default, any `@configurable` class used as a type hint is transformed into `T | T.Config`. If you want to force a parameter to accept only the raw instance (disabling nested configuration for that field), use `Leaf[T]`:
-
-```python
-from nonfig import configurable, Leaf
-
-@configurable
-class Processor:
-    def __init__(self, model: Leaf[MyModel]):
-        # 'model' must be a MyModel instance, not MyModel.Config
-        self.model = model
-```
-
-This is useful for passing pre-instantiated objects, heavy resources (like database connections), or when you want to strictly control the configuration hierarchy.
-
-- **Static Typing:** Type checkers see `Leaf[T]` as exactly `T`.
-- **Runtime:** Pydantic validates that the input is an instance of `T`.
-- **Stubs:** `nonfig-stubgen` preserves the raw type in the generated `.pyi` files.
 
 ## Integration with JAX, Flax & jaxtyping
 
@@ -284,43 +269,50 @@ config = MyLayer.Config(features=128)
 layer = config.make()  # Returns a valid MyLayer instance
 ```
 
-## Performance
+## CLI & Tooling
 
-| Pattern | Typical Latency* | Notes |
-| :--- | :--- | :--- |
-| **Raw Instantiation** | ~0.34µs | Baseline Python class |
-| **Direct Call** | ~0.34µs | Zero overhead on decorated class |
-| **`Config.make()`** | ~1.18µs | Cached factory call |
-| **`Config.fast_make()`** | ~0.54µs | Bypasses Pydantic validation |
-| **Reused `make()`** | ~0.47µs | Hot path: repeatedly calling make() |
-| **Full lifecycle** | ~3.80µs | `Config(...).make()` |
+### CLI Runner
 
-*Measured on Python 3.13, Linux x86_64, Intel(R) Core(TM) i5-7500T CPU @ 2.70GHz, 16GB RAM.*
-
-### High-Performance Usage & Granularity
-
-Since `Config.make()` adds a small overhead (~1µs) per call, it is best practice to:
-
-1.  **Configure High-Level Components:** Apply `@configurable` to top-level classes (e.g., `Optimizer`, `Model`, `Pipeline`) rather than low-level utility functions called in tight loops (e.g., `activation_fn`).
-2.  **Make Once, Run Many:** Instantiate your configuration *outside* your main loop.
+Run configurable targets with command-line overrides:
 
 ```python
-# ✅ BEST PRACTICE: Make once at the top level
-# The overhead is incurred only once here.
-fn = train.Config(epochs=100).make()
+from nonfig import configurable, Hyper, run_cli
 
-# Then call the optimized bound function repeatedly
-for batch in data:
-    fn(batch)
+@configurable
+def train(*, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01) -> dict:
+    return {"epochs": epochs, "lr": lr}
+
+if __name__ == "__main__":
+    result = run_cli(train)  # Parse sys.argv
+    print(result)
 ```
 
-For hot loops where you *must* create new objects dynamically, use `fast_make()`:
+```bash
+python train.py epochs=100 lr=0.001 optimizer.momentum=0.9
+```
+
+### Config Loaders
+
+Load configs from JSON, TOML, or YAML files:
 
 ```python
-# Option 2: fast_make (Bypasses Pydantic validation)
-for _ in range(1_000_000):
-    model = Model.Config.fast_make(hidden_size=128)
+from nonfig import load_json, load_toml, load_yaml
+
+# Load and instantiate
+data = load_toml("config.toml")
+config = Model.Config(**data)
+model = config.make()
 ```
+
+### Stub Generation
+
+For perfect IDE support (autocomplete and type checking), you can generate `.pyi` stub files for your configurable components:
+
+```bash
+nonfig-stubgen src/
+```
+
+This tool scans your source code for `@configurable` decorators and generates matching type stubs.
 
 ## Serialization
 
@@ -337,61 +329,62 @@ config.model_dump_json()
 Model.Config.model_validate_json(json_string)
 ```
 
-## Advanced Features
+## Performance & Best Practices
 
-- **Circular dependencies** in nested configs are detected at decoration time
-- **Cycle detection** in `recursive_make` prevents infinite loops at runtime
-- **Stub generation**: `nonfig-stubgen src/` for perfect IDE support
-- **Reserved names**: Descriptive errors when clashing with Pydantic or nonfig internals
-- **Thread safe**: Concurrent config creation fully supported
+### Performance
 
-## Best Practices
+| Pattern | Typical Latency* | Notes |
+| :--- | :--- | :--- |
+| **Raw Instantiation** | ~0.34µs | Baseline Python class |
+| **Direct Call** | ~0.34µs | Zero overhead on decorated class |
+| **`Config.make()`** | ~1.18µs | Cached factory call |
+| **`Config.fast_make()`** | ~0.54µs | Bypasses Pydantic validation |
+| **Reused `make()`** | ~0.47µs | Hot path: repeatedly calling make() |
+| **Full lifecycle** | ~3.80µs | `Config(...).make()` |
+
+*Measured on Python 3.13, Linux x86_64, Intel(R) Core(TM) i5-7500T CPU @ 2.70GHz, 16GB RAM.*
+
+### High-Performance Usage
+
+Since `Config.make()` adds a small overhead (~1µs) per call, it is best practice to:
+
+1.  **Configure High-Level Components:** Apply `@configurable` to top-level classes (e.g., `Optimizer`, `Model`, `Pipeline`) rather than low-level utility functions called in tight loops (e.g., `activation_fn`).
+2.  **Make Once, Run Many:** Instantiate your configuration *outside* your main loop.
+
+```python
+# ✅ BEST PRACTICE: Make once at the top level
+fn = train.Config(epochs=100).make()
+
+# Then call the optimized bound function repeatedly
+for batch in data:
+    fn(batch)
+```
+
+For hot loops where you *must* create new objects dynamically, use `fast_make()`:
+
+```python
+# Bypasses Pydantic validation
+for _ in range(1_000_000):
+    model = Model.Config.fast_make(hidden_size=128)
+```
 
 ### Use Keyword-Only Parameters
 
-Place hyperparameters after `*` to make them keyword-only:
+Place hyperparameters after `*` to make them keyword-only to avoid argument conflicts:
 
 ```python
 # ✅ Recommended
 @configurable
 def train(data, *, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01):
     ...
-
-# ⚠️ Avoid: positional hypers can cause argument conflicts
-@configurable
-def train(data, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01):
-    ...
 ```
 
-## Inheritance & Propagation
+## Advanced Topics
 
-`nonfig` supports automatic inheritance. If you inherit from a `@configurable` class, the subclass is automatically made configurable.
-
-Furthermore, `nonfig` uses **Smart Parameter Propagation**:
-1.  If your subclass accepts `**kwargs` in `__init__`, `nonfig` assumes you are passing arguments to the base class.
-2.  It automatically adds all configurable parameters from the Base class to the Subclass's Config.
-3.  If you explicitly define a parameter in the Subclass, it overrides the Base parameter.
-
-```python
-@configurable
-class Base:
-    def __init__(self, x: int = 1):
-        self.x = x
-
-# ✅ Sub accepts **kwargs, so it inherits 'x' from Base
-class Sub(Base):
-    def __init__(self, y: int = 2, **kwargs):
-        super().__init__(**kwargs)
-        self.y = y
-
-# Config has both x and y!
-config = Sub.Config(x=10, y=20)
-obj = config.make()
-assert obj.x == 10
-assert obj.y == 20
-```
-
-If you *omit* `**kwargs`, `nonfig` assumes you are hiding the base parameters, and they will not appear in the Config.
+- **Circular dependencies** in nested configs are detected at decoration time.
+- **Cycle detection** in `recursive_make` prevents infinite loops at runtime.
+- **Reserved names**: Descriptive errors when clashing with Pydantic or nonfig internals.
+- **Thread safety**: Concurrent config creation is fully supported.
 
 ## Known Limitations
 
@@ -409,7 +402,6 @@ fn(data, epochs=100)
 fn = train.Config(epochs=100).make()
 fn(data)
 ```
-
 
 ## API Reference
 
