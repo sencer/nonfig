@@ -338,7 +338,6 @@ Model.Config.model_validate_json(json_string)
 | **Raw Instantiation** | ~0.34µs | Baseline Python class |
 | **Direct Call** | ~0.34µs | Zero overhead on decorated class |
 | **`Config.make()`** | ~1.18µs | Cached factory call |
-| **`Config.fast_make()`** | ~0.54µs | Bypasses Pydantic validation |
 | **Reused `make()`** | ~0.47µs | Hot path: repeatedly calling make() |
 | **Full lifecycle** | ~3.80µs | `Config(...).make()` |
 
@@ -358,14 +357,6 @@ fn = train.Config(epochs=100).make()
 # Then call the optimized bound function repeatedly
 for batch in data:
     fn(batch)
-```
-
-For hot loops where you *must* create new objects dynamically, use `fast_make()`:
-
-```python
-# Bypasses Pydantic validation
-for _ in range(1_000_000):
-    model = Model.Config.fast_make(hidden_size=128)
 ```
 
 ### Use Keyword-Only Parameters
