@@ -220,6 +220,70 @@ This is useful for passing pre-instantiated objects, heavy resources (like datab
 - **Runtime:** Pydantic validates that the input is an instance of `T`.
 - **Stubs:** `nonfig-stubgen` preserves the raw type in the generated `.pyi` files.
 
+## Integration with JAX, Flax & jaxtyping
+
+`nonfig` is designed to work seamlessly with the JAX ecosystem. It preserves `jaxtyping` annotations and supports Flax `nn.Module` configurations.
+
+### `jaxtyping` & `beartype`
+
+You can combine `@configurable` with runtime type checkers. `nonfig` correctly unwraps these decorators to extract hyperparameters and preserves dimension metadata in the generated Config.
+
+```python
+from jaxtyping import Float, Array, jaxtyped
+from beartype import beartype
+from nonfig import configurable, Hyper
+
+@configurable
+@jaxtyped(typechecker=beartype)
+def scale_tensor(
+    tensor: Float[Array, "batch dim"], 
+    scale: Hyper[float] = 1.0
+) -> Float[Array, "batch dim"]:
+    return tensor * scale
+
+# Dimension metadata "batch dim" is preserved in scale_tensor.Config
+# Runtime checks correctly catch invalid shapes passed to the configured function
+```
+
+**Important: Decorator Order**
+Always place `@configurable` as the **outermost** decorator for functions. This ensures that the configuration logic wraps the fully-decorated function (including type checks).
+
+```python
+# ✅ Correct: configurable is outer
+@configurable
+@jaxtyped(typechecker=beartype)
+def func(...): ...
+
+# ❌ Incorrect: jaxtyped is outer (bypasses type checking in .make())
+@jaxtyped(typechecker=beartype)
+@configurable
+def func(...): ...
+```
+
+### Flax Modules
+
+`nonfig` works with Flax modules, allowing you to easily configure layers and models:
+
+```python
+import flax.linen as nn
+
+@configurable
+class MyLayer(nn.Module):
+    features: Hyper[int]
+    dtype: Hyper[Any] = jnp.float32
+
+    @nn.compact
+    def __call__(self, x):
+        # features is available as self.features
+        kernel = self.param('kernel', nn.initializers.lecun_normal(), 
+                          (x.shape[-1], self.features))
+        return jnp.dot(x, kernel)
+
+# Configure the module
+config = MyLayer.Config(features=128)
+layer = config.make()  # Returns a valid MyLayer instance
+```
+
 ## Performance
 
 | Pattern | Typical Latency* | Notes |

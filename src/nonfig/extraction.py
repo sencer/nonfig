@@ -118,36 +118,52 @@ def unwrap_hyper(type_ann: Any) -> tuple[Any, tuple[Any, ...], bool]:
   return type_ann, (), False
 
 
-def extract_constraints(metadata: tuple[Any, ...]) -> dict[str, Any]:
+def extract_constraints(
+  metadata: tuple[Any, ...],
+) -> tuple[dict[str, Any], tuple[Any, ...]]:
   """Extract Pydantic field constraints from annotation metadata."""
   constraints: dict[str, Any] = {}
+  leftovers: list[Any] = []
 
   for item in metadata:
+    is_constraint = False
     if isinstance(item, Ge):
       constraints["ge"] = item.ge
+      is_constraint = True
     elif isinstance(item, Gt):
       constraints["gt"] = item.gt
+      is_constraint = True
     elif isinstance(item, Le):
       constraints["le"] = item.le
+      is_constraint = True
     elif isinstance(item, Lt):
       constraints["lt"] = item.lt
+      is_constraint = True
     elif isinstance(item, MinLen):
       constraints["min_length"] = item.min_length
+      is_constraint = True
     elif isinstance(item, MaxLen):
       constraints["max_length"] = item.max_length
+      is_constraint = True
     elif isinstance(item, MultipleOf):
       constraints["multiple_of"] = item.multiple_of
+      is_constraint = True
     elif isinstance(item, PatternConstraint):
       constraints["pattern"] = item.pattern
+      is_constraint = True
     elif isinstance(item, BaseMetadata):
       # Handle other annotated_types constraints
+      is_constraint = True
       for attr in ("ge", "gt", "le", "lt", "min_length", "max_length", "multiple_of"):
         if hasattr(item, attr):
           val = getattr(item, attr)
           if val is not None:
             constraints[attr] = val
 
-  return constraints
+    if not is_constraint:
+      leftovers.append(item)
+
+  return constraints, tuple(leftovers)
 
 
 def is_sequence_origin(origin: Any) -> bool:
@@ -377,7 +393,7 @@ def create_field_info(
   )
 
   # Extract constraints from metadata
-  constraint_kwargs = extract_constraints(constraints)
+  constraint_kwargs, leftovers = extract_constraints(constraints)
 
   # Validate for conflicts
   validate_constraint_conflicts(constraint_kwargs, param_name, func_name)
@@ -387,7 +403,15 @@ def create_field_info(
 
   # If there's an existing FieldInfo, use it directly
   if existing_field_info is not None:
+    # Remove existing FieldInfo from leftovers to avoid duplication
+    leftovers = tuple(x for x in leftovers if x is not existing_field_info)
+    if leftovers:
+      transformed_type = Annotated[transformed_type, *leftovers]
     return (transformed_type, existing_field_info)
+
+  # Re-apply non-constraint metadata (e.g. jaxtyping info)
+  if leftovers:
+    transformed_type = Annotated[transformed_type, *leftovers]
 
   # Handle default value
   if default_value is inspect.Parameter.empty:
@@ -446,14 +470,18 @@ def get_type_hints_safe(obj: Any) -> dict[str, Any]:
   Note: Cached for performance. The obj must be hashable (functions/classes are).
   """
   try:
-    # Use obj's __globals__ if available (for functions) or get it from the object
+    # Unwrap decorators (like jaxtyping, beartype) to get the original function
+    # This ensures we get the correct __globals__ for resolving types
+    base_obj = inspect.unwrap(obj)
+
+    # Use base_obj's __globals__ if available
     globalns: dict[str, Any] | None = None
-    if hasattr(obj, "__globals__"):
-      globalns = obj.__globals__
-    elif hasattr(obj, "__module__"):
+    if hasattr(base_obj, "__globals__"):
+      globalns = base_obj.__globals__
+    elif hasattr(base_obj, "__module__"):
       import sys
 
-      module = sys.modules.get(obj.__module__)
+      module = sys.modules.get(base_obj.__module__)
       if module is not None:
         globalns = vars(module)
 
@@ -463,7 +491,9 @@ def get_type_hints_safe(obj: Any) -> dict[str, Any]:
       from nonfig.typedefs import Hyper, Leaf
 
       ns = {**ns, "Hyper": Hyper, "Leaf": Leaf}
-    return get_type_hints(obj, globalns=ns, include_extras=True)
+
+    # Use base_obj for get_type_hints to get original annotations
+    return get_type_hints(base_obj, globalns=ns, include_extras=True)
   except Exception:
     # Fallback to annotations without resolution
     return getattr(obj, "__annotations__", {})
@@ -607,6 +637,7 @@ def extract_function_hyper_params(
       continue
 
     field_type = hints.get(name, param.annotation)
+
     if field_type is inspect.Parameter.empty:
       continue
 
