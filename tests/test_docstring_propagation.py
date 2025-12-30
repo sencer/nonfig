@@ -70,11 +70,11 @@ def test_stub_docstring_function(tmp_path: Path):
   source_file.write_text(
     dedent("""
         from nonfig import configurable, Hyper
-        
+
         @configurable
         def my_func(x: Hyper[int] = 1):
             \"\"\"Original function docstring.
-            
+
             Args:
                 x: A parameter.
             \"\"\"
@@ -103,7 +103,7 @@ def test_stub_docstring_class(tmp_path: Path):
   source_file.write_text(
     dedent("""
         from nonfig import configurable, Hyper
-        
+
         @configurable
         class MyClass:
             \"\"\"Original class docstring.\"\"\"
@@ -131,7 +131,7 @@ def test_stub_no_docstring(tmp_path: Path):
   source_file.write_text(
     dedent("""
         from nonfig import configurable, Hyper
-        
+
         @configurable
         def no_doc(x: Hyper[int] = 1):
             pass
@@ -152,7 +152,7 @@ def test_stub_docstring_with_annotated_hyper(tmp_path: Path):
     dedent("""
         from typing import Annotated
         from nonfig import configurable, Hyper
-        
+
         @configurable
         def my_func(x: Annotated[int, Hyper] = 1):
             \"\"\"Docstring.\"\"\"
@@ -174,7 +174,7 @@ def test_stub_docstring_with_complex_types(tmp_path: Path):
     dedent("""
         from nonfig import configurable, Hyper
         from typing import Literal
-        
+
         @configurable
         def my_func(mode: Hyper[Literal['a', 'b']] = 'a'):
             \"\"\"Docstring.\"\"\"

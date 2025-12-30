@@ -141,25 +141,27 @@ def configurable[T](
       - Config.make() returns a callable with Hyper args bound
 
   Examples:
-      @configurable
-      @dataclass
-      class Model:
-          learning_rate: Hyper[float, Ge[0], Le[1]] = 0.01
-          num_layers: Hyper[int, Ge[1]] = 3
+    ```python
+    @configurable
+    @dataclass
+    class Model:
+      learning_rate: Hyper[float, Ge[0], Le[1]] = 0.01
+      num_layers: Hyper[int, Ge[1]] = 3
 
-      config = Model.Config(learning_rate=0.001)
-      model = config.make()
+    config = Model.Config(learning_rate=0.001)
+    model = config.make()
 
-      @configurable
-      def train(
-          data: Dataset,  # Call-time arg
-          epochs: Hyper[int, Ge[1]] = 10,  # Config arg
-      ) -> Metrics:
-          ...
+    @configurable
+    def train(
+      data: Dataset,  # Call-time arg
+      epochs: Hyper[int, Ge[1]] = 10,  # Config arg
+    ) -> Metrics:
+      ...
 
-      config = train.Config(epochs=20)
-      trainer = config.make()  # Returns callable
-      result = trainer(my_dataset)  # Calls train(my_dataset, epochs=20)
+    config = train.Config(epochs=20)
+    trainer = config.make()  # Returns callable
+    result = trainer(my_dataset)  # Calls train(my_dataset, epochs=20)
+    ```
   """
   if isinstance(target, type):
     return _configurable_class(target)

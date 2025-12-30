@@ -6,14 +6,16 @@ runtime constraint objects (from annotated_types) while appearing as valid type
 expressions to type checkers.
 
 Example:
-    from nonfig.constraints import Ge, Le
-    from nonfig import Hyper
+  ```python
+  from nonfig.constraints import Ge, Le
+  from nonfig import Hyper
 
-    def my_function(
-        period: Hyper[int, Ge[2], Le[100]] = 14,
-        threshold: Hyper[float, Ge[0.0], Le[1.0]] = 0.5,
-    ) -> float:
-        return period * threshold
+  def my_function(
+    period: Hyper[int, Ge[2], Le[100]] = 14,
+    threshold: Hyper[float, Ge[0.0], Le[1.0]] = 0.5,
+  ) -> float:
+    return period * threshold
+  ```
 """
 
 # pyright: reportUnknownMemberType=false
@@ -78,7 +80,9 @@ class Ge:
   runtime value must be >= the specified value.
 
   Example:
-      age: Hyper[int, Ge[0]] = 25  # age must be >= 0
+    ```python
+    age: Hyper[int, Ge[0]] = 25  # age must be >= 0
+    ```
   """
 
   __slots__ = ()
@@ -96,7 +100,9 @@ class Gt:
   runtime value must be > the specified value (strict inequality).
 
   Example:
-      epsilon: Hyper[float, Gt[0.0]] = 1e-9  # epsilon must be > 0
+    ```python
+    epsilon: Hyper[float, Gt[0.0]] = 1e-9  # epsilon must be > 0
+    ```
   """
 
   __slots__ = ()
@@ -114,7 +120,9 @@ class Le:
   runtime value must be <= the specified value.
 
   Example:
-      percentage: Hyper[float, Ge[0.0], Le[100.0]] = 50.0
+    ```python
+    percentage: Hyper[float, Ge[0.0], Le[100.0]] = 50.0
+    ```
   """
 
   __slots__ = ()
@@ -132,7 +140,9 @@ class Lt:
   runtime value must be < the specified value (strict inequality).
 
   Example:
-      probability: Hyper[float, Ge[0.0], Lt[1.0]] = 0.5
+    ```python
+    probability: Hyper[float, Ge[0.0], Lt[1.0]] = 0.5
+    ```
   """
 
   __slots__ = ()
@@ -150,7 +160,9 @@ class MinLen:
   runtime value's length must be >= the specified value.
 
   Example:
-      name: Hyper[str, MinLen[1]] = "default"
+    ```python
+    name: Hyper[str, MinLen[1]] = "default"
+    ```
   """
 
   __slots__ = ()
@@ -168,7 +180,9 @@ class MaxLen:
   runtime value's length must be <= the specified value.
 
   Example:
-      name: Hyper[str, MinLen[1], MaxLen[100]] = "default"
+    ```python
+    name: Hyper[str, MinLen[1], MaxLen[100]] = "default"
+    ```
   """
 
   __slots__ = ()
@@ -186,7 +200,9 @@ class MultipleOf:
   runtime value must be a multiple of the specified value.
 
   Example:
-      batch_size: Hyper[int, Ge[1], MultipleOf[8]] = 32
+    ```python
+    batch_size: Hyper[int, Ge[1], MultipleOf[8]] = 32
+    ```
   """
 
   __slots__ = ()
@@ -220,7 +236,9 @@ class Pattern:
   runtime string value must match the specified regex pattern.
 
   Example:
-      code: Hyper[str, Pattern[r'^[A-Z]{3}$']] = "USD"
+    ```python
+    code: Hyper[str, Pattern[r"^[A-Z]{3}$"]] = "USD"
+    ```
   """
 
   __slots__ = ()

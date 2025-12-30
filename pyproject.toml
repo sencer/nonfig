@@ -27,6 +27,9 @@ dev = [
     "pyyaml>=6.0.0",
     "jaxtyping>=0.2.0",
     "beartype>=0.15.0",
+    "pre-commit>=4.1.0",
+    "mkdocs-material>=9.6.0",
+    "mkdocstrings[python]>=0.28.0",
 ]
 yaml = ["pyyaml>=6.0"]
 
