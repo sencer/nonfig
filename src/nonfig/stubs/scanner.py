@@ -535,6 +535,7 @@ def _collect_config_names(
     # 2. wrap_external assignments
     elif isinstance(node, ast.Assign):
       for target_node in node.targets:
+        # Handle both unpacking (A, B = C, D) and multiple assignment (A = B = C)
         if isinstance(target_node, (ast.Tuple, ast.List)):
           targets = target_node.elts
           if isinstance(node.value, (ast.Tuple, ast.List)) and len(
@@ -542,9 +543,7 @@ def _collect_config_names(
           ) == len(targets):
             values = node.value.elts
           else:
-            values = [node.value] * len(
-              targets
-            )  # Fallback for scalar assignments to multiple targets
+            values = [node.value] * len(targets)
         else:
           targets = [target_node]
           values = [node.value]
@@ -628,6 +627,7 @@ def _extract_wrapped_configs(
       values: list[ast.AST] = []
 
       for target_node in node.targets:
+        # Handle both unpacking (A, B = C, D) and multiple assignment (A = B = C)
         if isinstance(target_node, (ast.Tuple, ast.List)):
           if isinstance(node.value, (ast.Tuple, ast.List)) and len(
             node.value.elts

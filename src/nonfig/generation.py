@@ -67,13 +67,8 @@ def _to_pascal_case(name: str) -> str:
   stripped = name.lstrip("_")
   leading_underscores = "_" * (len(name) - len(stripped))
 
-  # PascalCase the rest, but avoid lowering existing uppercase if it's already PascalCase-ish
-  def capitalize_word(word: str) -> str:
-    if not word:
-      return ""
-    return word[0].upper() + word[1:]
-
-  pascal = "".join(capitalize_word(word) for word in stripped.split("_"))
+  # PascalCase the rest, preserving existing uppercase (e.g., URL -> URL, myFunc -> MyFunc)
+  pascal = "".join(w[:1].upper() + w[1:] for w in stripped.split("_") if w)
 
   return leading_underscores + pascal
 
