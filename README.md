@@ -224,20 +224,29 @@ This is useful for passing pre-instantiated objects, heavy resources (like datab
 
 | Pattern | Typical Latency* | Notes |
 | :--- | :--- | :--- |
-| **Raw Instantiation** | ~0.3µs | Baseline Python class |
-| **Direct Call** | ~0.3µs | Zero overhead on decorated class |
-| **`Config.make()`** | ~1.3µs | Cached factory call |
-| **`Config.fast_make()`** | ~0.5µs | Bypasses Pydantic validation |
-| **Full lifecycle** | ~4.3µs | `Config(...).make()` |
+| **Raw Instantiation** | ~0.34µs | Baseline Python class |
+| **Direct Call** | ~0.34µs | Zero overhead on decorated class |
+| **`Config.make()`** | ~1.18µs | Cached factory call |
+| **`Config.fast_make()`** | ~0.54µs | Bypasses Pydantic validation |
+| **Reused `make()`** | ~0.47µs | Hot path: repeatedly calling make() |
+| **Full lifecycle** | ~3.80µs | `Config(...).make()` |
 
 *Measured on Python 3.13, Linux x86_64.*
 
 ### High-Performance Usage
 
-For hot loops where parameters are already trusted:
+For hot loops where parameters are already trusted, you have two options:
+
+1. **Reused Config (Recommended):** Create the config once and call `make()` repeatedly. This is the fastest method (~0.47µs), nearly matching raw instantiation speed.
+2. **`fast_make()`:** If you must create new configs inside a loop, use `fast_make()` to bypass validation (~0.54µs).
 
 ```python
-# Bypasses Pydantic validation (~0.5µs)
+# Option 1: Reused Config (Fastest)
+config = Model.Config(hidden_size=128)
+for _ in range(1_000_000):
+    model = config.make()
+
+# Option 2: fast_make
 for _ in range(1_000_000):
     model = Model.Config.fast_make(hidden_size=128)
 ```
