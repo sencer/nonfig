@@ -45,7 +45,6 @@ _RESERVED_PYDANTIC_NAMES = {"model_config", "model_fields", "model_computed_fiel
 # Names reserved by nonfig on the Config class
 _NONFIG_RESERVED_NAMES = {
   "make",
-  "fast_make",
   "_make_impl",
   "_is_always_leaf",
   "_maybe_nested_fields",
@@ -431,40 +430,7 @@ def _create_class_config[T](
     cls, is_leaf=is_leaf, maybe_nested=maybe_nested
   )
 
-  # Add fast_make static method for high-performance direct creation
-  config_cls.fast_make = _create_class_fast_make(
-    cls, is_leaf=is_leaf, maybe_nested=maybe_nested
-  )
-
   return config_cls
-
-
-def _create_class_fast_make[T](
-  cls: type[T],
-  is_leaf: bool = False,
-  maybe_nested: set[str] | None = None,
-) -> Callable[..., T]:
-  """Create a static fast_make method that bypasses Pydantic."""
-  if is_leaf:
-
-    def fast_make_leaf(**kwargs: Any) -> T:
-      return cls(**kwargs)
-
-    return fast_make_leaf
-
-  nested_names = maybe_nested or set()
-
-  def fast_make_nested(**kwargs: Any) -> T:
-    # Recursively make only the fields that MIGHT be nested
-    for name in nested_names:
-      if name in kwargs:
-        val = kwargs[name]
-        made = recursive_make(val)
-        if made is not val:
-          kwargs[name] = made
-    return cls(**kwargs)
-
-  return fast_make_nested
 
 
 def _create_class_make_method[T](
@@ -610,42 +576,7 @@ def _create_function_config(
     func, is_leaf=is_leaf, maybe_nested=maybe_nested
   )
 
-  # Add fast_make static method
-  config_cls.fast_make = _create_function_fast_make(
-    func, is_leaf=is_leaf, maybe_nested=maybe_nested
-  )
-
   return config_cls
-
-
-def _create_function_fast_make(
-  func: Callable[..., Any],
-  is_leaf: bool = False,
-  maybe_nested: set[str] | None = None,
-) -> Callable[..., BoundFunction[Any]]:
-  """Create a static fast_make method for functions."""
-  func_name = getattr(func, "__name__", type(func).__name__)
-  func_doc = func.__doc__
-
-  if is_leaf:
-
-    def fast_make_leaf(**kwargs: Any) -> BoundFunction[Any]:
-      return BoundFunction(func, kwargs, func_name, func_doc)
-
-    return fast_make_leaf
-
-  nested_names = maybe_nested or set()
-
-  def fast_make_nested(**kwargs: Any) -> BoundFunction[Any]:
-    for name in nested_names:
-      if name in kwargs:
-        val = kwargs[name]
-        made = recursive_make(val)
-        if made is not val:
-          kwargs[name] = made
-    return BoundFunction(func, kwargs, func_name, func_doc)
-
-  return fast_make_nested
 
 
 def _create_function_make_method(

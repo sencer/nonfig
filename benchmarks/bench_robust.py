@@ -21,8 +21,8 @@ os.environ["LOGURU_LEVEL"] = "WARNING"
 from nonfig import DEFAULT, Hyper, configurable
 
 # Configuration
-TRIALS = 7
-ITERATIONS = 50_000
+TRIALS = 15
+ITERATIONS = 100_000
 
 
 def time_ns(func: Callable[[], Any], iterations: int) -> float:
