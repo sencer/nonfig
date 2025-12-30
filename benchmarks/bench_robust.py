@@ -125,11 +125,17 @@ def run_all_benchmarks():
       self.x = x
       self.y = y
 
+    def method(self, z: int) -> float:
+      return (self.x + z) * self.y
+
   @configurable
   class ConfiguredClass:
     def __init__(self, x: int, y: float):
       self.x = x
       self.y = y
+
+    def method(self, z: int) -> float:
+      return (self.x + z) * self.y
 
   benchmark("Class: Raw Init", lambda: RawClass(10, 0.5))
   benchmark("Class: Direct Init (Decorated)", lambda: ConfiguredClass(10, 0.5))
@@ -137,6 +143,14 @@ def run_all_benchmarks():
 
   cfg_c = ConfiguredClass.Config(x=10, y=0.5)
   benchmark("Class: make()", cfg_c.make)
+
+  raw_inst = RawClass(10, 0.5)
+  direct_inst = ConfiguredClass(10, 0.5)
+  made_inst = cfg_c.make()
+
+  benchmark("Class: Method Call (Raw)", lambda: raw_inst.method(2))
+  benchmark("Class: Method Call (Direct)", lambda: direct_inst.method(2))
+  benchmark("Class: Method Call (Made)", lambda: made_inst.method(2))
 
   # --- DATACLASS PATTERN ---
   print("\n[3/6] DATACLASS PATTERN")
