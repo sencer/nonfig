@@ -275,11 +275,13 @@ def _transform_to_config_type(
   be their .Config type since you pass configs, not instances.
 
   Examples:
+    ```
     DataPreprocessor -> DataPreprocessor.Config
     Model -> Model.Config
     int -> int (unchanged, primitive)
     list[float] -> list[float] (unchanged, container)
     cap.Type -> cap.Config (Type suffix removed)
+    ```
   """
   if is_leaf:
     return type_str

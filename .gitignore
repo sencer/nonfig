@@ -76,3 +76,4 @@ uv.lock
 # AI tool configs
 .gemini/
 .claude/
+/site

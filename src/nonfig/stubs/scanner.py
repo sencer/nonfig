@@ -396,8 +396,10 @@ def extract_primitive_aliases(tree: ast.Module) -> set[str]:
   """Identify type aliases to primitive types or containers.
 
   Example:
-      Vector = list[float]  -> 'Vector' is an alias
-      UserID = int          -> 'UserID' is an alias
+    ```python
+    Vector = list[float]  # 'Vector' is an alias
+    UserID = int  # 'UserID' is an alias
+    ```
   """
   aliases: set[str] = set()
 

@@ -338,14 +338,16 @@ class BoundFunction[R]:
   a BoundFunction instead of a plain function. This allows accessing
   the bound hyperparameters:
 
-      @configurable
-      def process(data: pd.Series, window: Hyper[int] = 10) -> pd.Series:
-          return data.rolling(window).mean()
+  ```python
+  @configurable
+  def process(data: pd.Series, window: Hyper[int] = 10) -> pd.Series:
+    return data.rolling(window).mean()
 
-      config = process.Config(window=20)
-      fn = config.make()
-      result = fn(data)      # Call it like a function
-      print(fn.window)       # Access the bound hyperparameter (20)
+  config = process.Config(window=20)
+  fn = config.make()
+  result = fn(data)  # Call it like a function
+  print(fn.window)  # Access the bound hyperparameter (20)
+  ```
   """
 
   __slots__ = ("_doc", "_func", "_hyper_kwargs", "_name")

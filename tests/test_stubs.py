@@ -688,7 +688,7 @@ def test_stub_class_var_for_wrapper(tmp_path: Path):
   source_file.write_text(
     dedent("""
         from nonfig import configurable, Hyper
-        
+
         @configurable
         def my_func(x: Hyper[int] = 10):
             pass
@@ -1293,8 +1293,8 @@ def test_scan_mixed_params():
 
 @configurable
 def mixed(
-    a: int, 
-    b: int = DEFAULT, 
+    a: int,
+    b: int = DEFAULT,
     c: Hyper[int] = 1
 ):
     pass

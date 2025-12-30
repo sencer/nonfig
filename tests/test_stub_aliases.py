@@ -15,11 +15,11 @@ def test_stub_respects_primitive_alias(tmp_path: Path):
   source_file.write_text(
     dedent("""
         from nonfig import configurable, Hyper
-        
+
         # Type alias for a container
         Vector = list[float]
         Matrix = list[Vector]
-        
+
         @configurable
         def process_vectors(
             vec: Hyper[Vector] = [1.0, 2.0],
@@ -47,14 +47,14 @@ def test_stub_transforms_structural_alias(tmp_path: Path):
   source_file.write_text(
     dedent("""
         from nonfig import configurable, Hyper
-        
+
         @configurable
         class Model:
             x: Hyper[int] = 1
 
         # Alias to a configurable class
         MyModel = Model
-        
+
         @configurable
         def train(m: Hyper[MyModel]):
             pass
@@ -86,10 +86,10 @@ def test_stub_respects_annotated_alias(tmp_path: Path):
     dedent("""
         from typing import Annotated
         from nonfig import configurable, Hyper, Leaf
-        
+
         # Alias with Leaf marker
         StrictModel = Annotated['Model', Leaf]
-        
+
         @configurable
         class Model:
             x: int = 1

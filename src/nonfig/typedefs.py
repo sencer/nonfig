@@ -32,7 +32,9 @@ else:
     Marker to prevent a type from being transformed into a nested config.
 
     Usage:
-        x: Hyper[Leaf[MyConfig]]  # Use MyConfig instance directly, don't allow MyConfig.Config
+      ```python
+      x: Hyper[Leaf[MyConfig]]  # Use MyConfig instance directly, don't allow MyConfig.Config
+      ```
     """
 
     __slots__ = ()
@@ -53,8 +55,10 @@ else:
     Type annotation for hyperparameters.
 
     Usage:
-        x: Hyper[int]  # Simple hyperparameter
-        x: Hyper[int, Ge[0], Le[100]]  # With constraints
+      ```python
+      x: Hyper[int]  # Simple hyperparameter
+      x: Hyper[int, Ge[0], Le[100]]  # With constraints
+      ```
 
     For classes/dataclasses: marks a field as a hyperparameter
     For functions: separates config args from call args
@@ -124,21 +128,25 @@ if TYPE_CHECKING:
     For functions, Config accepts ALL params (not just Hyper) as a trade-off.
 
     Example (regular class - works):
-        @configurable
-        class Model:
-            def __init__(self, x: int, y: str = "default") -> None: ...
+      ```python
+      @configurable
+      class Model:
+        def __init__(self, x: int, y: str = "default") -> None: ...
 
-        config = Model.Config(x=1, y="hi")  # Correctly typed params!
-        instance = config.make()             # Returns Model
+      config = Model.Config(x=1, y="hi")  # Correctly typed params!
+      instance = config.make()  # Returns Model
+      ```
 
     Example (dataclass workaround):
-        @dataclass
-        class _Model:
-            x: int
-            y: str = "default"
+      ```python
+      @dataclass
+      class _Model:
+        x: int
+        y: str = "default"
 
-        Model = configurable(_Model)
-        config = Model.Config(x=1)  # Correctly typed params!
+      Model = configurable(_Model)
+      config = Model.Config(x=1)  # Correctly typed params!
+      ```
     """
 
     Config: Callable[P, MakeableModel[R_co]]

@@ -39,9 +39,9 @@ def test_configurable_with_no_hyperparams(tmp_path: Path) -> None:
   p.write_text(
     dedent("""
         from nonfig import configurable
-        
+
         @configurable
-        def simple(x: int): 
+        def simple(x: int):
             pass
     """)
   )
@@ -94,15 +94,15 @@ def test_import_filtering(tmp_path: Path) -> None:
         from __future__ import annotations
         from typing import TYPE_CHECKING
         from nonfig import configurable, Hyper
-        
+
         if TYPE_CHECKING:
             from unused import Unused
             import unused_module
             from used_mod import UsedType
-        
+
         import os  # Unused
         import sys # Used
-        
+
         @configurable
         def func(param: Hyper[UsedType]):
             return sys.platform
