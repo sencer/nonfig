@@ -9,6 +9,7 @@ type stub files with Config class stubs.
 from __future__ import annotations
 
 import argparse
+import glob
 import logging
 from pathlib import Path
 import sys
@@ -55,18 +56,16 @@ def _resolve_paths(pattern: str) -> list[Path]:
   """Resolve a path pattern to a list of Python files."""
   path = Path(pattern)
 
-  if path.is_dir():
-    return list(path.rglob("*.py"))
-
   if path.is_file() and path.suffix == ".py":
     return [path]
 
-  # For nonexistent paths, return empty list
-  if path.is_absolute() or not path.exists():
-    return []
+  if path.is_dir():
+    return list(path.rglob("*.py"))
 
-  # Glob pattern
-  return [p for p in Path().glob(pattern) if p.suffix == ".py" and p.is_file()]
+  # Use glob module for shell-style pattern expansion
+  # Handles both relative (*.py) and absolute (/tmp/*.py) patterns
+  matches = glob.glob(pattern, recursive=True)
+  return [Path(p) for p in matches if p.endswith(".py") and Path(p).is_file()]
 
 
 def main(argv: list[str] | None = None) -> int:

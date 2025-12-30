@@ -233,20 +233,27 @@ This is useful for passing pre-instantiated objects, heavy resources (like datab
 
 *Measured on Python 3.13, Linux x86_64, Intel(R) Core(TM) i5-7500T CPU @ 2.70GHz, 16GB RAM.*
 
-### High-Performance Usage
+### High-Performance Usage & Granularity
 
-For hot loops where parameters are already trusted, you have two options:
+Since `Config.make()` adds a small overhead (~1µs) per call, it is best practice to:
 
-1. **Reused Config (Recommended):** Create the config once and call `make()` repeatedly. This is the fastest method (~0.47µs), nearly matching raw instantiation speed.
-2. **`fast_make()`:** If you must create new configs inside a loop, use `fast_make()` to bypass validation (~0.54µs).
+1.  **Configure High-Level Components:** Apply `@configurable` to top-level classes (e.g., `Optimizer`, `Model`, `Pipeline`) rather than low-level utility functions called in tight loops (e.g., `activation_fn`).
+2.  **Make Once, Run Many:** Instantiate your configuration *outside* your main loop.
 
 ```python
-# Option 1: Reused Config (Fastest)
-config = Model.Config(hidden_size=128)
-for _ in range(1_000_000):
-    model = config.make()
+# ✅ BEST PRACTICE: Make once at the top level
+# The overhead is incurred only once here.
+fn = train.Config(epochs=100).make()
 
-# Option 2: fast_make
+# Then call the optimized bound function repeatedly
+for batch in data:
+    fn(batch)
+```
+
+For hot loops where you *must* create new objects dynamically, use `fast_make()`:
+
+```python
+# Option 2: fast_make (Bypasses Pydantic validation)
 for _ in range(1_000_000):
     model = Model.Config.fast_make(hidden_size=128)
 ```
