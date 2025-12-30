@@ -466,8 +466,6 @@ def extract_primitive_aliases(tree: ast.Module) -> set[str]:
         if is_alias:
           aliases.add(target.id)
 
-    # TODO: Handle Annotated aliases if needed
-
   return aliases
 
 
