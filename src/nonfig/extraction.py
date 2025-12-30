@@ -335,6 +335,7 @@ def transform_type_for_nesting(type_ann: Any, is_leaf: bool = False) -> Any:
   return type_ann
 
 
+@functools.lru_cache(maxsize=128)
 def _get_config_class(value: Any) -> type[MakeableModel[Any]] | None:
   """Get the Config class for a field type or default value, if available."""
   # Optimization: early return for common primitive types
