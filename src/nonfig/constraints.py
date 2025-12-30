@@ -265,10 +265,7 @@ def validate_constraint_conflicts(
     ValueError: If impossible constraints are detected.
   """
   # Build context string for error messages
-  if func_name:
-    context = f" (in '{func_name}')"
-  else:
-    context = ""
+  context = f" (in '{func_name}')" if func_name else ""
 
   # Check numeric bound conflicts
   lower_bound = None
