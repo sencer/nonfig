@@ -66,9 +66,7 @@ def test_should_transform_primitive_containers():
 
 
 def test_stub_docstring_preservation():
-  """
-  Issue: Docstrings of methods in non-configurable classes are stripped in stubs.
-  """
+  """Issue: Docstrings of methods in non-configurable classes are stripped in stubs."""
   import ast
   from textwrap import dedent
 
@@ -89,7 +87,8 @@ def test_stub_docstring_preservation():
 
 def test_scanner_unpacking_assignment_crash(tmp_path: Path):
   """
-  Issue 1: Scanner crashes on unpacking assignments like A, B = func()
+  Issue 1: Scanner crashes on unpacking assignments like A, B = func().
+
   due to zip(..., strict=True) mismatch.
   """
   from nonfig.stubs.scanner import scan_module

@@ -12,9 +12,7 @@ def test_pascal_case_collision():
 
 
 def test_pascal_case_desired_behavior():
-  """
-  Verify that _to_pascal_case handles existing camel/pascal case gracefully.
-  """
+  """Verify that _to_pascal_case handles existing camel/pascal case gracefully."""
   from nonfig.generation import _to_pascal_case
 
   assert _to_pascal_case("my_func") == "MyFunc"

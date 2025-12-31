@@ -1,4 +1,4 @@
-"The configurable decorator and related utilities."
+"""The configurable decorator and related utilities."""
 
 # pyright: reportAttributeAccessIssue=false, reportPrivateUsage=false, reportUnknownVariableType=false
 # pyright: reportCallIssue=false, reportArgumentType=false, reportFunctionMemberAccess=false
