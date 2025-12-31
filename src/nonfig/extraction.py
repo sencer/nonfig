@@ -336,6 +336,19 @@ def transform_type_for_nesting(type_ann: Any, is_leaf: bool = False) -> Any:
 
 
 @functools.lru_cache(maxsize=128)
+def _get_config_class_for_type(cls: type) -> type[MakeableModel[Any]] | None:
+  """Cached helper for types."""
+  # Case 1: value is already a Config class (MakeableModel subclass)
+  if issubclass(cls, MakeableModel):
+    return cls
+
+  # Case 3: value has a .Config attribute (configurable class or function)
+  config_cls = getattr(cls, "Config", None)
+  if isinstance(config_cls, type) and issubclass(config_cls, MakeableModel):
+    return config_cls
+  return None
+
+
 def _get_config_class(value: Any) -> type[MakeableModel[Any]] | None:
   """Get the Config class for a field type or default value, if available."""
   # Optimization: early return for common primitive types
@@ -344,19 +357,20 @@ def _get_config_class(value: Any) -> type[MakeableModel[Any]] | None:
   if isinstance(value, type) and value in {int, float, str, bool}:
     return None
 
-  # Case 1: value is already a Config class (MakeableModel subclass)
-  if isinstance(value, type) and issubclass(value, MakeableModel):
-    return value
+  # Handle types (cached)
+  if isinstance(value, type):
+    return _get_config_class_for_type(value)
 
   # Case 2: value is a Config instance (MakeableModel instance)
   if isinstance(value, MakeableModel):
     return type(value)
 
   # Optimization: only check types and callables for the rest
-  if not isinstance(value, type) and not callable(value):
+  if not callable(value):
     return None
 
-  # Case 3: value has a .Config attribute (configurable class or function)
+  # Case 3: value has a .Config attribute (configurable function)
+  # For callables, we don't cache as they might be dynamically created/modified or unhashable closures
   config_cls = getattr(value, "Config", None)
   if isinstance(config_cls, type) and issubclass(config_cls, MakeableModel):
     return config_cls

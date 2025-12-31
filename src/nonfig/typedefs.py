@@ -99,7 +99,7 @@ if TYPE_CHECKING:
     @classmethod
     def Config(
       cls, *args: P.args, **kwargs: P.kwargs
-    ) -> MakeableModel[BoundFunction[R]]: ...
+    ) -> MakeableModel[BoundFunction[P, R]]: ...
 
     # __new__ allows the "class" to be called like a function returning R
     # This matches the runtime behavior where fn(args) -> R
