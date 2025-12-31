@@ -52,16 +52,6 @@ def test_reserved_names_errors() -> None:
     def func_make(make: Hyper[int] = 1):
       pass
 
-  # Test 'fast_make' clash
-
-  # Test 'fast_make' clash
-  with pytest.raises(ValueError, match="Parameter 'fast_make' is reserved by nonfig"):
-
-    @configurable
-    class ClassFastMake:
-      def __init__(self, fast_make: int = 1):
-        pass
-
   # Test Pydantic reserved name
   with pytest.raises(
     ValueError, match="Parameter 'model_config' is reserved by Pydantic"

@@ -583,22 +583,21 @@ def _create_function_make_method(
   func: Callable[..., Any],
   is_leaf: bool = False,
   maybe_nested: set[str] | None = None,
-) -> Callable[[MakeableModel[Any]], BoundFunction[Any]]:
+) -> Callable[[MakeableModel[Any]], BoundFunction[Any, Any]]:
   """Create the make() method for a function Config."""
-  func_name = getattr(func, "__name__", type(func).__name__)
-  func_doc = func.__doc__
+  # func_name and func_doc are no longer needed here as they are retrieved dynamically by BoundFunction property proxies
 
   if is_leaf:
 
-    def make_leaf(self: MakeableModel[Any]) -> BoundFunction[Any]:
-      return BoundFunction(func, self.__dict__, func_name, func_doc)
+    def make_leaf(self: MakeableModel[Any]) -> BoundFunction[Any, Any]:
+      return BoundFunction(func, **self.__dict__)
 
     return make_leaf
 
   # Specialized nested implementation to avoid runtime loops
   nested_names = list(maybe_nested or set())
 
-  def make_nested(self: MakeableModel[Any]) -> BoundFunction[Any]:
+  def make_nested(self: MakeableModel[Any]) -> BoundFunction[Any, Any]:
     data = self.__dict__
     private = cast("dict[str, Any]", self.__pydantic_private__)
 
@@ -619,7 +618,7 @@ def _create_function_make_method(
       has_nested = private["_has_nested"]
 
     if not has_nested:
-      return BoundFunction(func, data, func_name, func_doc)
+      return BoundFunction(func, **data)
 
     updates: dict[str, Any] = {}
     for name in nested_names:
@@ -629,9 +628,9 @@ def _create_function_make_method(
         updates[name] = made
 
     if not updates:
-      return BoundFunction(func, data, func_name, func_doc)
+      return BoundFunction(func, **data)
 
-    return BoundFunction(func, data | updates, func_name, func_doc)
+    return BoundFunction(func, **(data | updates))
 
   return make_nested
 

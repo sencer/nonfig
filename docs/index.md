@@ -335,13 +335,14 @@ Model.Config.model_validate_json(json_string)
 
 | Pattern | Typical Latency* | Notes |
 | :--- | :--- | :--- |
-| **Raw Instantiation** | ~0.34µs | Baseline Python class |
-| **Direct Call** | ~0.34µs | Zero overhead on decorated class |
-| **`Config.make()`** | ~1.18µs | Cached factory call |
-| **Reused `make()`** | ~0.47µs | Hot path: repeatedly calling make() |
-| **Full lifecycle** | ~3.80µs | `Config(...).make()` |
+| **Raw Instantiation** | ~0.15µs | Baseline Python class |
+| **Direct Call** | ~0.09µs | Zero overhead on decorated function |
+| **`Config.make()`** | ~0.17µs | Cached factory call (Function) |
+| **`Config.make()`** | ~0.29µs | Cached factory call (Class) |
+| **Reused `make()`** | ~0.17µs | Hot path: repeatedly calling make() |
+| **Full lifecycle** | ~1.85µs | `Config(...).make()` |
 
-*Measured on Python 3.13, Linux x86_64, Intel(R) Core(TM) i5-7500T CPU @ 2.70GHz, 16GB RAM.*
+*Measured on Python 3.12.11, Linux x86_64, AMD EPYC 7B12, 94GB RAM.*
 
 ### High-Performance Usage
 

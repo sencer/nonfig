@@ -5,8 +5,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 from types import UnionType
-from typing import Any, cast, get_args, get_origin, override
+from typing import TYPE_CHECKING, Any, cast, get_args, get_origin, override
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, ValidationError
 
@@ -326,67 +327,42 @@ def recursive_make(value: Any, visited: set[int] | None = None) -> Any:
   return value
 
 
-class BoundFunction:
+class BoundFunction[**P, R](partial):  # pyright: ignore[reportMissingTypeArgument]
   """
   A callable wrapper that exposes hyperparameters as attributes.
 
-  When a @configurable function's Config.make() is called, it returns
-  a BoundFunction instead of a plain function. This allows accessing
-  the bound hyperparameters:
-
-  ```python
-  @configurable
-  def process(data: pd.Series, window: Hyper[int] = 10) -> pd.Series:
-    return data.rolling(window).mean()
-
-  config = process.Config(window=20)
-  fn = config.make()
-  result = fn(data)  # Call it like a function
-  print(fn.window)  # Access the bound hyperparameter (20)
-  ```
+  Inherits from functools.partial for maximum performance.
   """
 
-  __slots__ = ("_doc", "_func", "_hyper_kwargs", "_name")
-
-  def __init__(
-    self,
-    func: Callable[..., R],
-    hyper_kwargs: dict[str, Any],
-    name: str,
-    doc: str | None = None,
-  ) -> None:
-    object.__setattr__(self, "_func", func)
-    object.__setattr__(self, "_hyper_kwargs", hyper_kwargs)
-    object.__setattr__(self, "_name", name)
-    object.__setattr__(self, "_doc", doc)
+  __slots__ = ()
 
   @property
   def __name__(self) -> str:
-    return self._name
+    return self.func.__name__
 
   @property
   @override
   def __doc__(self) -> str | None:  # pyright: ignore[reportIncompatibleVariableOverride]
-    return self._doc
+    return self.func.__doc__
 
   @property
-  def __wrapped__(self) -> Callable[..., R]:
-    return self._func
+  def __wrapped__(self) -> Callable[P, R]:
+    return cast("Callable[P, R]", self.func)
 
-  def __call__(self, *args: Any, **kwargs: Any) -> R:
-    """Call the function with bound hyperparameters."""
-    # Optimization: avoid dict merge if no call-time kwargs
-    if not kwargs:
-      return self._func(*args, **self._hyper_kwargs)
-    return self._func(*args, **self._hyper_kwargs, **kwargs)
+  if TYPE_CHECKING:
+
+    @override
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
+      """Call the function with bound hyperparameters."""
+      ...
 
   def __getattr__(self, name: str) -> Any:
     """Access bound hyperparameters as attributes."""
     if name.startswith("_"):
       raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
     try:
-      return self._hyper_kwargs[name]
-    except KeyError:
+      return self.keywords[name]
+    except (KeyError, TypeError):  # TypeError if keywords is None
       raise AttributeError(
         f"'{type(self).__name__}' has no attribute '{name}'"
       ) from None
@@ -394,22 +370,14 @@ class BoundFunction:
   @override
   def __setattr__(self, name: str, value: Any) -> None:
     """Prevent modification of bound hyperparameters."""
-    # Allow setting slots (internal use only)
-    if name in self.__slots__:
-      object.__setattr__(self, name, value)
-      return
-
-    # Check if it's a known hyperparameter
-    if hasattr(self, "_hyper_kwargs") and name in self._hyper_kwargs:
-      raise AttributeError(f"Hyperparameter '{name}' is read-only")
-
-    # Otherwise it's an unknown attribute
-    raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+    raise AttributeError(f"'{type(self).__name__}' is immutable")
 
   @override
   def __repr__(self) -> str:
-    params = ", ".join(f"{k}={v!r}" for k, v in self._hyper_kwargs.items())
-    return f"{self._name}({params})"
+    # keywords can be None
+    kw = self.keywords or {}
+    params = ", ".join(f"{k}={v!r}" for k, v in kw.items())
+    return f"{self.__name__}({params})"
 
 
 def is_makeable_model(type_ann: Any) -> bool:

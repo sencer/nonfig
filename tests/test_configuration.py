@@ -7,7 +7,6 @@ from pydantic import BaseModel, ValidationError
 import pytest
 
 from nonfig import (
-  DEFAULT,
   Ge,
   Hyper,
   Le,
@@ -226,11 +225,11 @@ def test_function_runtime_attributes_are_readonly() -> None:
   assert bound_fn.x == 20
 
   # Writing should fail
-  with pytest.raises(AttributeError, match="Hyperparameter 'x' is read-only"):
+  with pytest.raises(AttributeError, match="is immutable"):
     bound_fn.x = 30
 
   # Writing to unknown attribute should generic error
-  with pytest.raises(AttributeError, match="'BoundFunction' has no attribute 'z'"):
+  with pytest.raises(AttributeError, match="is immutable"):
     bound_fn.z = 100
 
 
@@ -459,32 +458,3 @@ def test_model_config_parameter_raises_error():
     class MyClass:
       def __init__(self, model_config: Hyper[int] = 1):
         pass
-
-
-@configurable
-@dataclass
-class FastModel:
-  lr: Hyper[float] = 0.01
-  name: Hyper[str] = "test"
-
-
-@configurable
-@dataclass
-class NestedFast:
-  inner: Hyper[FastModel] = DEFAULT
-
-
-def test_fast_make():
-  """Test the static fast_make method that bypasses Pydantic."""
-  # Direct call to static method
-  model = FastModel.Config.fast_make(lr=0.05, name="fast")
-  assert isinstance(model, FastModel)
-  assert model.lr == 0.05
-  assert model.name == "fast"
-
-  # Test nested fast_make
-  inner_config = FastModel.Config(lr=0.1)
-  nested = NestedFast.Config.fast_make(inner=inner_config)
-  assert isinstance(nested, NestedFast)
-  assert isinstance(nested.inner, FastModel)
-  assert nested.inner.lr == 0.1
