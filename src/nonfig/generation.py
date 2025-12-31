@@ -48,6 +48,10 @@ _NONFIG_RESERVED_NAMES = {
   "_make_impl",
   "_is_always_leaf",
   "_maybe_nested_fields",
+  "func",
+  "args",
+  "keywords",
+  "__wrapped__",
 }
 
 _ALL_RESERVED_NAMES = _RESERVED_PYDANTIC_NAMES | _NONFIG_RESERVED_NAMES
