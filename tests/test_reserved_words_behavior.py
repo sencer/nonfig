@@ -10,15 +10,13 @@ def test_args_reserved_word_protection():
   This test verifies that 'args' is now a reserved name to prevent shadowing
   by functools.partial.args, which would return an empty tuple instead of the configured list.
   """
-
   with pytest.raises(ValueError, match="Parameter 'args' is reserved"):
 
     @configurable
     def cli_wrapper(
-      command: Hyper[str] = "echo", args: Hyper[list[str]] | None = None
+      command: Hyper[str] = "echo", args: Hyper[tuple[str, ...]] = ("hello",)
     ) -> str:
-      args_list = args or ["hello"]
-      return f"{command} {' '.join(args_list)}"
+      return f"{command} {' '.join(args)}"
 
 
 def test_func_reserved_word_protection():
@@ -35,7 +33,7 @@ def test_keywords_reserved_word_protection():
   with pytest.raises(ValueError, match="Parameter 'keywords' is reserved"):
 
     @configurable
-    def wrapper(keywords: Hyper[dict] | None = None):
+    def wrapper(keywords: Hyper[dict] = None):
       pass
 
 
