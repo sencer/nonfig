@@ -307,7 +307,8 @@ def test_literal_in_class() -> None:
 
 def test_config_ambiguity():
   """
-  Verify that if a MakeableModel has a .Config attribute,
+  Verify that if a MakeableModel has a .Config attribute,.
+
   extraction picks the class itself instead of the attribute.
   """
   from nonfig.models import MakeableModel
@@ -339,7 +340,8 @@ def test_config_ambiguity():
 
 def test_implicit_hyper_extraction_for_config_subclasses():
   """
-  Verify that a direct subclass of MakeableModel is correctly identified
+  Verify that a direct subclass of MakeableModel is correctly identified.
+
   as an implicit hyperparameter.
   """
   from nonfig.models import MakeableModel

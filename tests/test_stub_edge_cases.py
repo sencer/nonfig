@@ -147,9 +147,7 @@ def test_import_filtering(tmp_path: Path) -> None:
 
 
 def test_stub_generation_dotted_names(tmp_path: Path) -> None:
-  """
-  Verify that dotted expressions in wrap_external are cleaned up for return types in stubs.
-  """
+  """Verify that dotted expressions in wrap_external are cleaned up for return types in stubs."""
   source_file = tmp_path / "complex_wrap.py"
   source_file.write_text(
     dedent("""
@@ -168,7 +166,8 @@ def test_stub_generation_dotted_names(tmp_path: Path) -> None:
 
 def test_stub_method_decorator_filtering():
   """
-  Verify that external decorators are filtered out of method stubs
+  Verify that external decorators are filtered out of method stubs.
+
   to prevent NameErrors in .pyi files.
   """
   source = """
@@ -192,9 +191,7 @@ class DataProcessor:
 
 
 def test_scanner_multiple_assignments(tmp_path: Path):
-  """
-  Verify that the scanner detects wrap_external calls in multiple assignments.
-  """
+  """Verify that the scanner detects wrap_external calls in multiple assignments."""
   source_file = tmp_path / "multi_wrap.py"
   source_file.write_text(
     """
@@ -277,7 +274,8 @@ def test_stub_generator_import_handling_for_decorators(tmp_path: Path):
 
 def test_stub_dataclass_import_preservation(tmp_path: Path):
   """
-  Issue 3: Verify that dataclass import is correctly added to stubs
+  Issue 3: Verify that dataclass import is correctly added to stubs.
+
   when non-configurable dataclasses are present.
   """
   source_file = tmp_path / "data.py"
@@ -302,7 +300,8 @@ def test_stub_dataclass_import_preservation(tmp_path: Path):
 
 def test_stub_generator_custom_wrap_alias(tmp_path: Path):
   """
-  Verify that custom aliases for wrap_external are correctly handled
+  Verify that custom aliases for wrap_external are correctly handled.
+
   and don't leak into public constants.
   """
   source_file = tmp_path / "custom_alias.py"

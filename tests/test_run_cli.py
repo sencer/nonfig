@@ -21,38 +21,38 @@ class TestRunCli:
   """Tests for run_cli function."""
 
   def test_run_cli_with_no_args(self) -> None:
-    """run_cli with no args uses defaults."""
+    """Run_cli with no args uses defaults."""
     result = run_cli(simple_func, [])
     bound = result
     output = bound()
     assert output == "World:1"
 
   def test_run_cli_with_simple_override(self) -> None:
-    """run_cli parses key=value overrides."""
+    """Run_cli parses key=value overrides."""
     result = run_cli(simple_func, ["name=Claude"])
     output = result()
     assert output == "Claude:1"
 
   def test_run_cli_with_int_coercion(self) -> None:
-    """run_cli coerces int values."""
+    """Run_cli coerces int values."""
     result = run_cli(simple_func, ["count=5"])
     output = result()
     assert output == "World:5"
 
   def test_run_cli_with_multiple_overrides(self) -> None:
-    """run_cli handles multiple overrides."""
+    """Run_cli handles multiple overrides."""
     result = run_cli(simple_func, ["name=Test", "count=42"])
     output = result()
     assert output == "Test:42"
 
   def test_run_cli_with_class(self) -> None:
-    """run_cli works with configurable classes."""
+    """Run_cli works with configurable classes."""
     result = run_cli(SimpleClass, ["value=99", "label=custom"])
     assert result.value == 99
     assert result.label == "custom"
 
   def test_run_cli_raises_for_non_configurable(self) -> None:
-    """run_cli raises TypeError for non-configurable targets."""
+    """Run_cli raises TypeError for non-configurable targets."""
 
     def plain_func() -> None:
       pass

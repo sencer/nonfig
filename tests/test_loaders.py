@@ -112,7 +112,7 @@ class TestLoadYaml:
   """Tests for load_yaml function."""
 
   def test_load_yaml_import_error(self) -> None:
-    """load_yaml raises ImportError with helpful message when PyYAML unavailable."""
+    """Load_yaml raises ImportError with helpful message when PyYAML unavailable."""
     # We can't easily test this without uninstalling PyYAML
     # but we can test the function works if PyYAML is available
     try:

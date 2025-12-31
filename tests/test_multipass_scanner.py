@@ -6,7 +6,8 @@ from nonfig.stubs.scanner import scan_module
 
 def test_multipass_implicit_hyper_detection(tmp_path: Path):
   """
-  Verify that the multi-pass scanner detects implicit hyperparameters
+  Verify that the multi-pass scanner detects implicit hyperparameters.
+
   referring to local configurations (decorated items or wrap_external).
   """
   source_file = tmp_path / "app.py"
@@ -82,9 +83,7 @@ def test_multipass_multiple_assignments(tmp_path: Path):
 
 
 def test_aliased_config_import_detection(tmp_path: Path):
-  """
-  Issue: Aliased imports not ending in 'Config' should be detected via usage patterns.
-  """
+  """Issue: Aliased imports not ending in 'Config' should be detected via usage patterns."""
   source_file = tmp_path / "aliased_import.py"
   source_file.write_text(
     dedent("""

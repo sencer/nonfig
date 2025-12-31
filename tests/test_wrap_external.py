@@ -217,7 +217,8 @@ def test_typing_inference():
 
 def test_wrap_external_hyper_override_metadata():
   """
-  Verify that wrap_external with Hyper override doesn't leak HyperMarker
+  Verify that wrap_external with Hyper override doesn't leak HyperMarker.
+
   into Pydantic metadata and correctly applies constraints.
   """
 
@@ -243,7 +244,8 @@ def test_wrap_external_hyper_override_metadata():
 
 def test_wrap_external_required_field_preservation():
   """
-  Verify that wrap_external correctly identifies and preserves required fields
+  Verify that wrap_external correctly identifies and preserves required fields.
+
   even when overridden with a simple type.
   """
 
@@ -326,6 +328,7 @@ def test_override_existing_parameter_remains_required():
 def test_wrap_external_positional_only_error():
   """
   Issue 2: wrap_external fails at runtime when target has positional-only args.
+
   We want to catch this early and provide a helpful error message.
   """
 
@@ -341,9 +344,7 @@ def test_wrap_external_positional_only_error():
 
 
 def test_wrap_external_callable_instance():
-  """
-  Issue: wrap_external crashes when target has no __name__ (e.g., callable instance).
-  """
+  """Issue: wrap_external crashes when target has no __name__ (e.g., callable instance)."""
 
   class CallableObj:
     def __call__(self, x: int = 1):
@@ -359,9 +360,7 @@ def test_wrap_external_callable_instance():
 
 
 def test_wrap_external_overrides_callable_instance():
-  """
-  Issue: _apply_wrap_overrides crashes when target has no __name__.
-  """
+  """Issue: _apply_wrap_overrides crashes when target has no __name__."""
 
   class CallableObj:
     def __call__(self, x: int = 1):

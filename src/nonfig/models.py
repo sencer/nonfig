@@ -1,4 +1,4 @@
-"Base model classes for nonfig."
+"""Base model classes for nonfig."""
 
 # pyright: reportUnknownVariableType=false
 

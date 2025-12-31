@@ -71,7 +71,7 @@ class TestConfigNaming:
   """Test that Config classes are named in PascalCase."""
 
   def test_snake_case_function_gets_pascal_case_config(self) -> None:
-    """snake_case function names should produce PascalCase Config names."""
+    """Snake_case function names should produce PascalCase Config names."""
 
     @configurable
     def my_snake_case_function(x: Hyper[int] = 1) -> int:

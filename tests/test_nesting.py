@@ -173,7 +173,7 @@ class NetworkWithMapping:
 
 
 def test_list_with_default() -> None:
-  """list[Layer] = DEFAULT uses empty list."""
+  """List[Layer] = DEFAULT uses empty list."""
   config = NetworkWithList.Config()
   network = config.make()
   assert network.layers == []
@@ -207,7 +207,7 @@ def test_sequence_with_explicit_configs() -> None:
 
 
 def test_dict_with_default() -> None:
-  """dict[str, Layer] = DEFAULT uses empty dict."""
+  """Dict[str, Layer] = DEFAULT uses empty dict."""
   config = NetworkWithDict.Config()
   network = config.make()
   assert network.layers == {}

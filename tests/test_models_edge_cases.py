@@ -15,7 +15,7 @@ class TestIsNestedType:
   """Tests for is_nested_type edge cases."""
 
   def test_is_nested_with_makeable_model_subclass(self) -> None:
-    """is_nested_type returns True for MakeableModel subclasses."""
+    """Is_nested_type returns True for MakeableModel subclasses."""
 
     @configurable
     class Sub:
@@ -26,7 +26,7 @@ class TestIsNestedType:
     assert is_nested_type(config) is True
 
   def test_is_nested_with_class_type_config_attr(self) -> None:
-    """is_nested_type returns True for class with Config attribute."""
+    """Is_nested_type returns True for class with Config attribute."""
 
     @configurable
     class HasConfig:
@@ -37,7 +37,7 @@ class TestIsNestedType:
     assert is_nested_type(HasConfig) is True
 
   def test_is_nested_with_plain_class_type(self) -> None:
-    """is_nested_type returns False for plain class type."""
+    """Is_nested_type returns False for plain class type."""
 
     class PlainClass:
       pass
@@ -45,7 +45,7 @@ class TestIsNestedType:
     assert is_nested_type(PlainClass) is False
 
   def test_is_nested_with_sequence_containing_config(self) -> None:
-    """is_nested_type returns True for sequences with nested configs."""
+    """Is_nested_type returns True for sequences with nested configs."""
 
     @configurable
     class Sub:
@@ -59,7 +59,7 @@ class TestIsNestedType:
     assert is_nested_type(frozenset({config})) is True
 
   def test_is_nested_with_dict_containing_config(self) -> None:
-    """is_nested_type returns True for dicts with nested config values."""
+    """Is_nested_type returns True for dicts with nested config values."""
 
     @configurable
     class Sub:
@@ -70,7 +70,7 @@ class TestIsNestedType:
     assert is_nested_type({"key": config}) is True
 
   def test_is_nested_with_empty_containers(self) -> None:
-    """is_nested_type returns False for empty containers."""
+    """Is_nested_type returns False for empty containers."""
     assert is_nested_type([]) is False
     assert is_nested_type({}) is False
     assert is_nested_type(()) is False
@@ -80,7 +80,7 @@ class TestRecursiveMake:
   """Tests for recursive_make edge cases."""
 
   def test_recursive_make_with_tuple(self) -> None:
-    """recursive_make handles tuples with nested configs."""
+    """Recursive_make handles tuples with nested configs."""
 
     @configurable
     class Item:
@@ -96,7 +96,7 @@ class TestRecursiveMake:
     assert result[1].x == 2
 
   def test_recursive_make_with_set(self) -> None:
-    """recursive_make handles sets (returns set of made objects)."""
+    """Recursive_make handles sets (returns set of made objects)."""
 
     @configurable
     class Item:
@@ -112,13 +112,13 @@ class TestRecursiveMake:
     assert result[0].x == 1
 
   def test_recursive_make_with_frozen_set_no_transform(self) -> None:
-    """recursive_make returns original frozenset if no transform needed."""
+    """Recursive_make returns original frozenset if no transform needed."""
     original = frozenset({1, 2, 3})
     result = recursive_make(original)
     assert result is original
 
   def test_recursive_make_with_dict(self) -> None:
-    """recursive_make handles dicts with nested configs."""
+    """Recursive_make handles dicts with nested configs."""
 
     @configurable
     class Item:
@@ -132,13 +132,13 @@ class TestRecursiveMake:
     assert result["item"].val == 42
 
   def test_recursive_make_with_pure_data_tuple(self) -> None:
-    """recursive_make returns original tuple if no transform needed."""
+    """Recursive_make returns original tuple if no transform needed."""
     original = (1, 2, 3)
     result = recursive_make(original)
     assert result is original  # Same object, no copy
 
   def test_recursive_make_with_generic_sequence(self) -> None:
-    """recursive_make handles generic Sequence types."""
+    """Recursive_make handles generic Sequence types."""
     from collections import deque
 
     # deque is a Sequence but not list/tuple
@@ -147,7 +147,7 @@ class TestRecursiveMake:
     assert result is original  # No transform needed
 
   def test_recursive_make_with_generic_mapping(self) -> None:
-    """recursive_make handles generic Mapping types."""
+    """Recursive_make handles generic Mapping types."""
     from collections import OrderedDict
 
     original: Mapping[str, int] = OrderedDict([("a", 1), ("b", 2)])
@@ -180,7 +180,7 @@ class TestCalculateMakeFields:
   """Tests for calculate_make_fields."""
 
   def test_calculate_make_fields_with_nested(self) -> None:
-    """calculate_make_fields detects nested config values."""
+    """Calculate_make_fields detects nested config values."""
 
     @configurable
     class Inner:
@@ -201,7 +201,7 @@ class TestCalculateMakeFields:
     assert inner_field[1] is True
 
   def test_calculate_make_fields_no_nested(self) -> None:
-    """calculate_make_fields returns False when no nesting."""
+    """Calculate_make_fields returns False when no nesting."""
 
     @configurable
     class Flat:
