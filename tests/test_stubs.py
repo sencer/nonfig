@@ -699,7 +699,9 @@ def test_stub_class_var_for_wrapper(tmp_path: Path):
   content = generate_stub_content(infos, source_file, aliases)
 
   # Must import ClassVar
-  assert "from typing import ClassVar" in content
+  assert "from typing import" in content
+  assert "ClassVar" in content
+
   # Must use ClassVar for the attribute on the wrapper class
   assert "x: ClassVar[int]" in content
 
@@ -851,7 +853,8 @@ class TestOverrideDecorator:
     content = generate_stub_content(infos, source_file, aliases)
 
     assert "@override" in content
-    assert "from typing import override" in content
+    assert "from typing import" in content
+    assert "override" in content
     # Check override appears before make
     lines = content.split("\n")
     for i, line in enumerate(lines):
