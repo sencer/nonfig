@@ -81,6 +81,7 @@ def _collect_used_names(stub_content: str) -> set[str]:
   """Collect all names referenced in stub content.
 
   Parses the stub and collects Name nodes and the root of Attribute chains.
+  Also recursively scans string constants which might contain type references.
   """
   used_names: set[str] = set()
   try:
@@ -88,11 +89,28 @@ def _collect_used_names(stub_content: str) -> set[str]:
   except SyntaxError:
     return used_names
 
-  for node in ast.walk(tree):
+  def _scan_node(node: ast.AST) -> None:
     if isinstance(node, ast.Name):
       used_names.add(node.id)
-    elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-      used_names.add(node.value.id)
+    elif isinstance(node, ast.Attribute):
+      # For A.B.C, we want to collect 'A'
+      curr = node.value
+      while isinstance(curr, ast.Attribute):
+        curr = curr.value
+      if isinstance(curr, ast.Name):
+        used_names.add(curr.id)
+    elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+      # Try to parse string content as a type expression
+      try:
+        # We wrap it in a dummy expression to handle things like "int | str"
+        sub_tree = ast.parse(node.value, mode="eval")
+        for sub_node in ast.walk(sub_tree):
+          _scan_node(sub_node)
+      except SyntaxError:
+        pass
+
+  for node in ast.walk(tree):
+    _scan_node(node)
 
   return used_names
 
@@ -223,6 +241,26 @@ _PRIMITIVE_TYPES = frozenset({
   "None",
   "bytes",
   "complex",
+  "Any",
+  "dict",
+  "list",
+  "set",
+  "tuple",
+  "type",
+  "object",
+  "frozenset",
+  "slice",
+  "range",
+  "pd.Timedelta",
+  "pd.Timestamp",
+  "pd.Series",
+  "pd.DataFrame",
+  "np.ndarray",
+  "datetime",
+  "date",
+  "time",
+  "timedelta",
+  "Path",
 })
 
 # Generic container prefixes that should NOT be transformed
@@ -239,6 +277,9 @@ _CONTAINER_PREFIXES = (
   "Optional[",
   "Union[",
   "Callable[",
+  "Annotated[",
+  "Literal[",
+  "Type[",
 )
 
 
@@ -268,6 +309,43 @@ def _should_transform_to_config(type_str: str, aliases: set[str]) -> bool:
   return not _is_primitive_or_container(type_str)
 
 
+def _transform_ast_node(node: ast.AST, aliases: set[str]) -> ast.AST:
+  """Recursively transform an AST type node."""
+  # Handle A | B (Python 3.10+ unions)
+  if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+    return ast.BinOp(
+      left=_transform_ast_node(node.left, aliases),  # pyright: ignore[reportArgumentType]
+      op=ast.BitOr(),
+      right=_transform_ast_node(node.right, aliases),  # pyright: ignore[reportArgumentType]
+    )
+
+  # Handle containers: list[T], Union[T1, T2], etc.
+  if isinstance(node, ast.Subscript):
+    # Transform the slice (the part inside [])
+    if isinstance(node.slice, ast.Tuple):
+      new_elts = [_transform_ast_node(elt, aliases) for elt in node.slice.elts]
+      new_slice: ast.AST = ast.Tuple(elts=new_elts, ctx=ast.Load())
+    else:
+      new_slice = _transform_ast_node(node.slice, aliases)
+
+    return ast.Subscript(
+      value=node.value,
+      slice=new_slice,  # pyright: ignore[reportArgumentType]
+      ctx=ast.Load(),
+    )
+
+  # Leaf type (Name or Attribute)
+  if isinstance(node, (ast.Name, ast.Attribute)):
+    type_str = ast.unparse(node)
+    if _should_transform_to_config(type_str, aliases):
+      # Transform to T.Config | T.ConfigDict
+      config_attr = ast.Attribute(value=node, attr="Config", ctx=ast.Load())
+      dict_attr = ast.Attribute(value=node, attr="ConfigDict", ctx=ast.Load())
+      return ast.BinOp(left=config_attr, op=ast.BitOr(), right=dict_attr)
+
+  return node
+
+
 def _transform_to_config_type(
   type_str: str, aliases: set[str] | None = None, is_leaf: bool = False
 ) -> str:
@@ -278,11 +356,11 @@ def _transform_to_config_type(
 
   Examples:
     ```
-    DataPreprocessor -> DataPreprocessor.Config
-    Model -> Model.Config
+    DataPreprocessor -> DataPreprocessor.Config | DataPreprocessor.ConfigDict
+    Model -> Model.Config | Model.ConfigDict
     int -> int (unchanged, primitive)
-    list[float] -> list[float] (unchanged, container)
-    cap.Type -> cap.Config (Type suffix removed)
+    list[Model] -> list[Model.Config | Model.ConfigDict]
+    str | Model -> str | Model.Config | Model.ConfigDict
     ```
   """
   if is_leaf:
@@ -295,10 +373,17 @@ def _transform_to_config_type(
   if aliases is None:
     aliases = set()
 
-  if _should_transform_to_config(type_str, aliases):
-    # Allow passing a TypedDict for nested configs
-    return f"{type_str}.Config | {type_str}.ConfigDict"
-  return type_str
+  # Use AST to parse and transform the type string safely
+  try:
+    # mode='eval' is for single expressions
+    node = ast.parse(type_str, mode="eval").body
+    transformed = _transform_ast_node(node, aliases)
+    return ast.unparse(transformed)
+  except Exception:  # noqa: BLE001
+    # Fallback to simple logic if parsing fails
+    if _should_transform_to_config(type_str, aliases):
+      return f"{type_str}.Config | {type_str}.ConfigDict"
+    return type_str
 
 
 def _generate_config_dict(

@@ -48,11 +48,13 @@ def _get_annotation_str(node: ast.expr | None) -> str:
   """Convert an AST annotation to a string."""
   if node is None:
     return "Any"
+  if isinstance(node, ast.Constant) and isinstance(node.value, str):
+    return node.value
   return ast.unparse(node)
 
 
 def _is_hyper_annotation(node: ast.expr) -> bool:
-  """Check if an annotation is Hyper[...]."""
+  """Check if an annotation is Hyper[...] or contains it (e.g. Hyper[int] | None)."""
   if isinstance(node, ast.Subscript):
     # Check for Hyper[...]
     if isinstance(node.value, ast.Name) and node.value.id == "Hyper":
@@ -74,6 +76,15 @@ def _is_hyper_annotation(node: ast.expr) -> bool:
         if isinstance(elt, ast.Attribute) and elt.attr == "Hyper":
           return True
 
+    # Recursively check slices for Union[Hyper[T], None] etc.
+    if isinstance(node.slice, ast.Tuple):
+      return any(_is_hyper_annotation(elt) for elt in node.slice.elts)
+    return _is_hyper_annotation(node.slice)
+
+  # Check for A | B unions
+  if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+    return _is_hyper_annotation(node.left) or _is_hyper_annotation(node.right)
+
   return False
 
 
@@ -93,7 +104,16 @@ def _is_leaf_marker(node: ast.expr) -> bool:
 
 
 def _unwrap_hyper(node: ast.expr) -> tuple[str, bool]:
-  """Extract the inner type from Hyper[T, ...] -> (T, is_leaf)."""
+  """Extract the inner type from Hyper[T, ...] -> (T, is_leaf).
+
+  Also handles nested cases like Hyper[int] | None or Union[Hyper[int], str].
+  """
+  # Handle A | B unions
+  if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+    left_type, left_leaf = _unwrap_hyper(node.left)
+    right_type, right_leaf = _unwrap_hyper(node.right)
+    return f"{left_type} | {right_type}", left_leaf or right_leaf
+
   if isinstance(node, ast.Subscript):
     slice_node = node.slice
 
@@ -143,6 +163,20 @@ def _unwrap_hyper(node: ast.expr) -> tuple[str, bool]:
         return inner_type, is_leaf or inner_leaf
       # Single arg: Hyper[T]
       return _unwrap_hyper(slice_node)
+
+    # Handle Union[Hyper[T], str] etc.
+    if (
+      isinstance(node.value, ast.Name) and node.value.id in ("Union", "Optional")
+    ) or (
+      isinstance(node.value, ast.Attribute) and node.value.attr in ("Union", "Optional")
+    ):
+      if isinstance(slice_node, ast.Tuple):
+        results = [_unwrap_hyper(elt) for elt in slice_node.elts]
+        inner_types = [r[0] for r in results]
+        is_leaf = any(r[1] for r in results)
+        return f"{ast.unparse(node.value)}[{', '.join(inner_types)}]", is_leaf
+      inner_type, is_leaf = _unwrap_hyper(slice_node)
+      return f"{ast.unparse(node.value)}[{inner_type}]", is_leaf
 
   return _get_annotation_str(node), False
 
@@ -487,6 +521,13 @@ def extract_primitive_aliases(tree: ast.Module) -> set[str]:
         # Check simple assignment: Alias = type
         if isinstance(value, ast.Name):
           if value.id in primitives:
+            is_alias = True
+
+        # Check string literal assignment: Alias = "type"
+        elif isinstance(value, ast.Constant) and isinstance(value.value, str):
+          # We can't easily validate if it's a valid type inside the string without parsing,
+          # but if it matches a primitive name exactly, it's definitely an alias.
+          if value.value in primitives:
             is_alias = True
 
         # Check subscript: Alias = list[...]

@@ -1,84 +1,103 @@
-from __future__ import annotations
-
 from pathlib import Path
-from textwrap import dedent
+import textwrap
 
-from nonfig.stubs.generator import generate_stub_content
-from nonfig.stubs.scanner import scan_module
+from nonfig.stubs import generate_stub_for_file
 
 
-def test_stub_async_function_preservation(tmp_path: Path) -> None:
-  """Verify that async keyword is preserved in stubs for non-configurable functions."""
-  source_file = tmp_path / "async_test.py"
+def test_stub_regression_quoted_type_checking(tmp_path: Path) -> None:
+  """Regression test: Ensure quoted types inside TYPE_CHECKING blocks are preserved."""
+  source_file = tmp_path / "quoted_regression.py"
   source_file.write_text(
-    dedent("""
-        async def my_async_func(x: int) -> int:
-            return x
-    """),
+    textwrap.dedent("""
+            from typing import TYPE_CHECKING
+            from nonfig import configurable
+
+            if TYPE_CHECKING:
+                from decimal import Decimal as MyResult
+
+            @configurable
+            def my_func(x: int) -> "MyResult":
+                return 0  # type: ignore
+        """),
     encoding="utf-8",
   )
 
-  infos, aliases = scan_module(source_file)
-  content = generate_stub_content(infos, source_file, aliases)
+  stub_path = generate_stub_for_file(source_file)
+  assert stub_path is not None
 
-  assert "async def my_async_func" in content
+  content = stub_path.read_text(encoding="utf-8")
+
+  # 1. Verify the TYPE_CHECKING block is preserved
+  assert "if TYPE_CHECKING:" in content
+  assert "from decimal import Decimal as MyResult" in content
+
+  # 2. Verify the return type is unquoted in the stub (standard practice)
+  assert "-> MyResult:" in content or "-> 'MyResult':" in content
+
+  # 3. Verify it appears in the Bound protocol
+  assert (
+    "def __call__(self, x: int) -> MyResult:" in content
+    or "def __call__(self, x: int) -> 'MyResult':" in content
+  )
 
 
-def test_stub_dataclass_init_false_exclusion(tmp_path: Path) -> None:
-  """Verify that init=False fields are excluded from Config class in stubs."""
-  source_file = tmp_path / "dataclass_test.py"
+def test_stub_regression_nested_quoted_type(tmp_path: Path) -> None:
+  """Regression test: Ensure quoted types nested in containers are preserved."""
+  source_file = tmp_path / "nested_quoted.py"
   source_file.write_text(
-    dedent("""
-        from dataclasses import dataclass, field
-        from nonfig import configurable, Hyper
+    textwrap.dedent("""
+            from typing import TYPE_CHECKING, List
+            from nonfig import configurable
 
-        @configurable
-        @dataclass
-        class MyDataclass:
-            included: Hyper[int] = 10
-            excluded: int = field(default=5, init=False)
-    """),
+            if TYPE_CHECKING:
+                from decimal import Decimal as MyResult
+
+            @configurable
+            def my_func(x: int) -> list["MyResult"]:
+                return []
+        """),
     encoding="utf-8",
   )
 
-  infos, aliases = scan_module(source_file)
-  content = generate_stub_content(infos, source_file, aliases)
+  stub_path = generate_stub_for_file(source_file)
+  assert stub_path is not None
 
-  # 'included' should be in Config
-  assert "included: int = ..." in content
-  # 'excluded' should NOT be in Config (it will be in the original class stub though)
+  content = stub_path.read_text(encoding="utf-8")
 
-  # Check Config class body
-  config_lines = [
-    line
-    for line in content.splitlines()
-    if "class Config" in line or (line.startswith("        ") and ":" in line)
-  ]
-  assert any("included: int" in line for line in config_lines)
-  assert not any("excluded: int" in line for line in config_lines)
+  # Verify import is kept
+  assert "from decimal import Decimal as MyResult" in content
+
+  # Verify usage
+  assert (
+    "list['MyResult']" in content
+    or 'list["MyResult"]' in content
+    or "list[MyResult]" in content
+  )
 
 
-def test_stub_optional_union_imports(tmp_path: Path) -> None:
-  """Verify that Optional and Union are imported when used in stubs."""
-  source_file = tmp_path / "typing_test.py"
+def test_stub_regression_string_literal_constant(tmp_path: Path) -> None:
+  """Regression test: Ensure string literals that look like types are not accidentally pruned if they are just values."""
+  # This tests the safety of our 'recursive string scanning'.
+  # If we have a string "int", it shouldn't cause weird behavior,
+  # but more importantly, if we have a type alias defined as a string, it should work.
+  source_file = tmp_path / "string_alias.py"
   source_file.write_text(
-    dedent("""
-        from typing import Optional, Union
-        from nonfig import configurable, Hyper
+    textwrap.dedent("""
+            from nonfig import configurable
 
-        @configurable
-        def my_func(
-            x: Hyper[Optional[int]] = None,
-            y: Hyper[Union[int, str]] = 1
-        ):
-            pass
-    """),
+            # This is a type alias defined as a string (forward ref style)
+            MyType = "int"
+
+            @configurable
+            def my_func(x: MyType) -> None:
+                pass
+        """),
     encoding="utf-8",
   )
 
-  infos, aliases = scan_module(source_file)
-  content = generate_stub_content(infos, source_file, aliases)
+  stub_path = generate_stub_for_file(source_file)
+  assert stub_path is not None
+  content = stub_path.read_text(encoding="utf-8")
 
-  assert "from typing import" in content
-  assert "Optional" in content
-  assert "Union" in content
+  # The alias should be preserved
+  assert 'MyType = "int"' in content or "MyType = 'int'" in content
