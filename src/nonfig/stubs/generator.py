@@ -175,6 +175,7 @@ def _filter_imports(
       continue
 
     # Handle 'if TYPE_CHECKING:' blocks (but not 'from typing import TYPE_CHECKING')
+    # Note: import_stmt is unparsed code, so it might span multiple lines
     if import_stmt.lstrip().startswith("if ") and "TYPE_CHECKING" in import_stmt:
       result = _filter_type_checking_block(import_stmt, used_names, already_imported)
       if result:
@@ -841,7 +842,17 @@ def _build_import_section(
 
   # Extract and filter source imports
   future_imports, other_imports = _extract_imports(tree)
-  other_imports = [imp for imp in other_imports if "from nonfig import" not in imp]
+
+  # Filter out top-level nonfig imports that we regenerate, but keep TYPE_CHECKING blocks
+  # regardless of what they contain (they will be filtered by usage later)
+  kept_other_imports = []
+  for imp in other_imports:
+    if "from nonfig import" in imp:
+      if imp.lstrip().startswith("if ") and "TYPE_CHECKING" in imp:
+        kept_other_imports.append(imp)
+    else:
+      kept_other_imports.append(imp)
+  other_imports = kept_other_imports
 
   # Track what we're already importing
   # Note: We alias MakeableModel to _NCMakeableModel, so we don't
@@ -855,6 +866,12 @@ def _build_import_section(
 
   filtered_imports = _filter_imports(other_imports, used_names, already_imported)
 
+  # Check if TYPE_CHECKING is used in filtered imports
+  has_type_checking_block = any(
+    "TYPE_CHECKING" in imp and imp.lstrip().startswith("if ")
+    for imp in filtered_imports
+  )
+
   # Future imports first
   if future_imports:
     lines.extend(future_imports)
@@ -866,7 +883,7 @@ def _build_import_section(
     std_imports.append("from collections.abc import Callable")
 
   # Detect common typing decorators/types
-  typing_names = {
+  typing_names_to_check = {
     "Annotated",
     "Any",
     "ClassVar",
@@ -880,9 +897,17 @@ def _build_import_section(
     "runtime_checkable",
     "sealed",
   }
-  for name in sorted(typing_names):
+
+  used_typing_names: set[str] = set()
+  for name in typing_names_to_check:
     if name in used_names:
-      std_imports.append(f"from typing import {name}")
+      used_typing_names.add(name)
+
+  if has_type_checking_block:
+    used_typing_names.add("TYPE_CHECKING")
+
+  if used_typing_names:
+    std_imports.append(f"from typing import {', '.join(sorted(used_typing_names))}")
 
   if "dataclass" in used_names:
     std_imports.append("from dataclasses import dataclass")
@@ -936,7 +961,7 @@ def generate_stub_content(
     configurable_stubs + public_classes + public_funcs + public_constants
   )
   used_names = _collect_used_names(all_stubs)
-  used_names.update({"MakeableModel", "override"})
+  used_names.update({"MakeableModel"})
 
   import_lines = _build_import_section(tree, all_stubs, used_names)
 
