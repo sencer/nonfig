@@ -271,6 +271,25 @@ AdamConfig = wrap_external(
 )
 ```
 
+### Selective vs. Greedy Configuration
+
+There is a key difference in how parameters are extracted between the two methods:
+
+- **`@configurable` (Selective):** Only extracts parameters explicitly annotated with `Hyper[...]`, `DEFAULT`, or a `Config` class as a default value. Regular parameters are treated as runtime arguments that must be passed to `.make()`.
+- **`wrap_external` (Greedy):** Automatically extracts **every parameter** in the target's signature into the configuration. This is because external code is assumed to be fully delegated to the `nonfig` construction engine.
+
+To limit which parameters are configurable in an external library, wrap it in a local `@configurable` function:
+
+```python
+# Instead of wrapping Adam directly (greedy):
+# AdamConfig = wrap_external(Adam)
+
+# Wrap it locally to only expose 'lr' (selective):
+@configurable
+def my_adam(params, lr: Hyper[float] = 0.001):
+    return Adam(params, lr=lr)
+```
+
 ## Function Type Proxies
 
 When using a `@configurable` function as a type hint for a nested configuration, use
