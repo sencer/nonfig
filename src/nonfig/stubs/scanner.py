@@ -77,9 +77,16 @@ def _is_hyper_annotation(node: ast.expr) -> bool:
           return True
 
     # Recursively check slices for Union[Hyper[T], None] etc.
-    if isinstance(node.slice, ast.Tuple):
-      return any(_is_hyper_annotation(elt) for elt in node.slice.elts)
-    return _is_hyper_annotation(node.slice)
+    if (
+      isinstance(node.value, ast.Name)
+      and node.value.id in ("Union", "Optional", "Annotated")
+    ) or (
+      isinstance(node.value, ast.Attribute)
+      and node.value.attr in ("Union", "Optional", "Annotated")
+    ):
+      if isinstance(node.slice, ast.Tuple):
+        return any(_is_hyper_annotation(elt) for elt in node.slice.elts)
+      return _is_hyper_annotation(node.slice)
 
   # Check for A | B unions
   if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):

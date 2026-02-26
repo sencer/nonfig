@@ -101,3 +101,66 @@ def test_stub_regression_string_literal_constant(tmp_path: Path) -> None:
 
   # The alias should be preserved
   assert 'MyType = "int"' in content or "MyType = 'int'" in content
+
+
+def test_stub_regression_unsupported_hyper_container(tmp_path: Path) -> None:
+  """Regression test: Ensure Hyper in unsupported containers like list does not leak or cause errors."""
+  source_file = tmp_path / "unsupported_hyper.py"
+  source_file.write_text(
+    textwrap.dedent("""
+            from nonfig import configurable, Hyper
+
+            @configurable
+            def my_func(x: list[Hyper[int]]):
+                pass
+        """),
+    encoding="utf-8",
+  )
+
+  stub_path = generate_stub_for_file(source_file)
+  assert stub_path is not None
+  content = stub_path.read_text(encoding="utf-8")
+
+  # 1. Hyper marker should still be present in the Bound protocol because we don't 'unwrap' unsupported containers
+  assert "list[Hyper[int]]" in content
+  # 2. It should NOT be detected as a hyper parameter in the sense of being 'unwrapped'
+  # (i.e., it should not appear in ConfigDict if it was correctly ignored by our recursive check)
+  # BUT wait, in my repro it was in call_params. If it is in call_params, it won't be in ConfigDict.
+  assert "class _my_func_ConfigDict(TypedDict, total=False):" in content
+
+  # Get the body of ConfigDict
+  config_dict_part = content.split("class _my_func_ConfigDict")[1].split("class")[0]
+  # 'x' should NOT be here as a field if it's not a HyperParam
+  assert "x:" not in config_dict_part
+
+
+def test_stub_regression_nested_string_transformation(tmp_path: Path) -> None:
+  """Regression test: Ensure nested string forward references are transformed."""
+  source_file = tmp_path / "nested_string_trans.py"
+  source_file.write_text(
+    textwrap.dedent("""
+            from nonfig import configurable, Hyper
+
+            @configurable
+            class Model:
+                pass
+
+            @configurable
+            def my_func(x: Hyper[list["Model"]]):
+                pass
+        """),
+    encoding="utf-8",
+  )
+
+  stub_path = generate_stub_for_file(source_file)
+  assert stub_path is not None
+  content = stub_path.read_text(encoding="utf-8")
+
+  # The inner "Model" should be transformed to "Model.Config | Model.ConfigDict"
+  assert "Model.Config" in content
+  assert "Model.ConfigDict" in content
+
+  # It should be inside the list in the ConfigDict
+  config_dict_part = content.split("class _my_func_ConfigDict")[1].split("class")[0]
+  assert "x: list[" in config_dict_part
+  assert "Model.Config" in config_dict_part

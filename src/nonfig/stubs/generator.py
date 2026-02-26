@@ -343,6 +343,16 @@ def _transform_ast_node(node: ast.AST, aliases: set[str]) -> ast.AST:
       dict_attr = ast.Attribute(value=node, attr="ConfigDict", ctx=ast.Load())
       return ast.BinOp(left=config_attr, op=ast.BitOr(), right=dict_attr)
 
+  # Handle forward references (string literals) inside containers
+  if isinstance(node, ast.Constant) and isinstance(node.value, str):
+    try:
+      sub_node = ast.parse(node.value, mode="eval").body
+      transformed_sub = _transform_ast_node(sub_node, aliases)
+      # Wrap back in a Constant with the unparsed (transformed) string
+      return ast.Constant(value=ast.unparse(transformed_sub))
+    except SyntaxError:
+      pass
+
   return node
 
 
