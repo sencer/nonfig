@@ -129,43 +129,48 @@ def unwrap_hyper(type_ann: Any) -> tuple[Any, tuple[Any, ...], bool]:
 
 def extract_constraints(
   metadata: tuple[Any, ...],
-) -> tuple[dict[str, Any], tuple[Any, ...]]:
-  """Extract Pydantic field constraints from annotation metadata."""
-  constraints: dict[str, Any] = {}
+) -> tuple[dict[str, list[Any]], tuple[Any, ...]]:
+  """Extract Pydantic field constraints from annotation metadata.
+
+  Returns:
+    tuple of (raw_constraints, leftovers)
+    raw_constraints: dict mapping pydantic constraint names to lists of values
+    leftovers: metadata items that are NOT handled pydantic constraints
+  """
+  raw_constraints: dict[str, list[Any]] = {}
   leftovers: list[Any] = []
 
   for item in metadata:
     it_type = type(item)
-    is_constraint = False
+    is_handled_pydantic_constraint = False
 
     # Fast path for common annotated_types (Ge, Le, etc.)
     if it_type is Ge:
-      constraints["ge"] = item.ge
-      is_constraint = True
+      raw_constraints.setdefault("ge", []).append(item.ge)
+      is_handled_pydantic_constraint = True
     elif it_type is Gt:
-      constraints["gt"] = item.gt
-      is_constraint = True
+      raw_constraints.setdefault("gt", []).append(item.gt)
+      is_handled_pydantic_constraint = True
     elif it_type is Le:
-      constraints["le"] = item.le
-      is_constraint = True
+      raw_constraints.setdefault("le", []).append(item.le)
+      is_handled_pydantic_constraint = True
     elif it_type is Lt:
-      constraints["lt"] = item.lt
-      is_constraint = True
+      raw_constraints.setdefault("lt", []).append(item.lt)
+      is_handled_pydantic_constraint = True
     elif it_type is MinLen:
-      constraints["min_length"] = item.min_length
-      is_constraint = True
+      raw_constraints.setdefault("min_length", []).append(item.min_length)
+      is_handled_pydantic_constraint = True
     elif it_type is MaxLen:
-      constraints["max_length"] = item.max_length
-      is_constraint = True
+      raw_constraints.setdefault("max_length", []).append(item.max_length)
+      is_handled_pydantic_constraint = True
     elif it_type is MultipleOf:
-      constraints["multiple_of"] = item.multiple_of
-      is_constraint = True
+      raw_constraints.setdefault("multiple_of", []).append(item.multiple_of)
+      is_handled_pydantic_constraint = True
     elif it_type is PatternConstraint:
-      constraints["pattern"] = item.pattern
-      is_constraint = True
+      raw_constraints.setdefault("pattern", []).append(item.pattern)
+      is_handled_pydantic_constraint = True
     elif isinstance(item, BaseMetadata):
-      # Fallback for other annotated_types
-      is_constraint = True
+      # Handle other annotated_types
       mapping = {
         "ge": "ge",
         "gt": "gt",
@@ -175,22 +180,21 @@ def extract_constraints(
         "max_length": "max_length",
         "multiple_of": "multiple_of",
       }
-      found_any = False
       for attr, pydantic_name in mapping.items():
         if hasattr(item, attr):
           val = getattr(item, attr)
           if val is not None:
-            constraints[pydantic_name] = val
-            found_any = True
+            raw_constraints.setdefault(pydantic_name, []).append(val)
+            is_handled_pydantic_constraint = True
 
-      if not found_any:
-        # If it's BaseMetadata but we don't handle it, keep it in leftovers
-        leftovers.append(item)
-
-    if not is_constraint:
+    # Only keep in leftovers if it's NOT a constraint we've extracted into raw_constraints.
+    # This ensures that our resolved constraints (which are applied via FieldInfo)
+    # take precedence and aren't overwritten by the original un-resolved ones
+    # in the metadata list.
+    if not is_handled_pydantic_constraint:
       leftovers.append(item)
 
-  return constraints, tuple(leftovers)
+  return raw_constraints, tuple(leftovers)
 
 
 def is_sequence_origin(origin: Any) -> bool:
@@ -441,10 +445,12 @@ def create_field_info(
   )
 
   # Extract constraints from metadata
-  constraint_kwargs, leftovers = extract_constraints(constraints)
+  raw_constraints, leftovers = extract_constraints(constraints)
 
-  # Validate for conflicts
-  validate_constraint_conflicts(constraint_kwargs, param_name, func_name)
+  # Validate and resolve conflicts (e.g., Ge[5], Ge[10] -> Ge[10])
+  constraint_kwargs = validate_constraint_conflicts(
+    raw_constraints, param_name, func_name
+  )
 
   # Transform type for nested configs
   transformed_type = transform_type_for_nesting(field_type, is_leaf=is_leaf)

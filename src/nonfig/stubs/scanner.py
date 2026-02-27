@@ -242,7 +242,7 @@ def _extract_constraints_from_hyper(node: ast.expr, param_name: str) -> None:
   if not isinstance(slice_node, ast.Tuple) or len(slice_node.elts) < 2:
     return  # No constraints, just Hyper[T]
 
-  constraints: dict[str, float | int] = {}
+  raw_constraints: dict[str, list[float | int]] = {}
 
   # Process each constraint (skip first element which is the type)
   for elt in slice_node.elts[1:]:
@@ -262,10 +262,10 @@ def _extract_constraints_from_hyper(node: ast.expr, param_name: str) -> None:
       if constraint_key and isinstance(elt.slice, ast.Constant):
         value = elt.slice.value
         if isinstance(value, (int, float)):
-          constraints[constraint_key] = value
+          raw_constraints.setdefault(constraint_key, []).append(value)
 
-  if constraints:
-    validate_constraint_conflicts(constraints, param_name)
+  if raw_constraints:
+    validate_constraint_conflicts(raw_constraints, param_name)
 
 
 def _is_implicit_hyper_default(

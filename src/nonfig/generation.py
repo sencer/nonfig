@@ -499,39 +499,46 @@ def _create_class_make_method[T](
 
 def _configurable_function(func: Callable[..., Any]) -> Callable[..., Any]:
   """Apply configurable to a function."""
-  # Check if it's a method (has self parameter)
-  sig = inspect.signature(func)
-  params = list(sig.parameters.keys())
-  skip_first = bool(params and params[0] in ("self", "cls"))
+  if hasattr(func, "Config"):
+    return func
 
-  # Extract only Hyper parameters
-  hyper_params = extract_function_hyper_params(func, skip_first=skip_first)
+  with _decoration_lock:
+    if hasattr(func, "Config"):
+      return func
 
-  # Create Config class (includes validation hook if present)
-  config_cls = _create_function_config(func, hyper_params)
+    # Check if it's a method (has self parameter)
+    sig = inspect.signature(func)
+    params = list(sig.parameters.keys())
+    skip_first = bool(params and params[0] in ("self", "cls"))
 
-  # Create Type proxy
-  type_proxy = _create_type_proxy(func, config_cls)
+    # Extract only Hyper parameters
+    hyper_params = extract_function_hyper_params(func, skip_first=skip_first)
 
-  # Attach Config and Type directly to the function
-  func.Config = config_cls
-  func.Type = type_proxy
+    # Create Config class (includes validation hook if present)
+    config_cls = _create_function_config(func, hyper_params)
 
-  # Expose default hyperparameters as attributes on the function
-  for name, (_, field_info) in hyper_params.items():
-    # Only expose if we have a concrete default value
-    if (
-      field_info.default is not None
-      and field_info.default is not ...
-      and field_info.default is not PydanticUndefined
-    ):
-      # If default is a MakeableModel, we might want to expose it or its make() result?
-      # The user request implies accessing attributes like 'window', which are primitive values usually.
-      # For now, just expose the default value as is.
-      setattr(func, name, field_info.default)
+    # Create Type proxy
+    type_proxy = _create_type_proxy(func, config_cls)
 
-  # Return original function (monkey-patched)
-  return func
+    # Attach Config and Type directly to the function
+    func.Config = config_cls
+    func.Type = type_proxy
+
+    # Expose default hyperparameters as attributes on the function
+    for name, (_, field_info) in hyper_params.items():
+      # Only expose if we have a concrete default value
+      if (
+        field_info.default is not None
+        and field_info.default is not ...
+        and field_info.default is not PydanticUndefined
+      ):
+        # If default is a MakeableModel, we might want to expose it or its make() result?
+        # The user request implies accessing attributes like 'window', which are primitive values usually.
+        # For now, just expose the default value as is.
+        setattr(func, name, field_info.default)
+
+    # Return original function (monkey-patched)
+    return func
 
 
 def _create_function_config(
