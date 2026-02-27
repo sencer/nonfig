@@ -224,8 +224,22 @@ def is_nested_type(value: Any) -> bool:
 
 
 def _needs_transform(item: Any) -> bool:
-  """Check if an item needs transformation during recursive_make."""
-  return isinstance(item, MakeableModel | list | dict | tuple | set | frozenset)
+  """Check if an item needs transformation during recursive_make.
+
+  Only returns True for items that ARE models or ARE containers that
+  might contain models (i.e. we must recurse).
+  """
+  return isinstance(
+    item,
+    MakeableModel
+    | list
+    | dict
+    | tuple
+    | set
+    | frozenset
+    | BoundFunction
+    | DefaultSentinel,
+  )
 
 
 def recursive_make(value: Any, visited: set[int] | None = None) -> Any:

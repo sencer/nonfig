@@ -266,36 +266,20 @@ class Pattern:
     return PatternConstraint(compiled)
 
 
-def validate_constraint_conflicts(
-  constraints: dict[str, Any],
-  param_name: str,
-  func_name: str | None = None,
+def _validate_numeric_bounds(
+  resolved: dict[str, Any], param_name: str, context: str
 ) -> None:
-  """
-  Validate that constraints don't conflict with each other.
-
-  Args:
-    constraints: Dictionary of constraint names to values
-    param_name: Name of the parameter (for error messages)
-    func_name: Optional function/class name (for richer error messages)
-
-  Raises:
-    ValueError: If impossible constraints are detected.
-  """
-  # Build context string for error messages
-  context = f" (in '{func_name}')" if func_name else ""
-
-  # Check numeric bound conflicts
+  """Check for logical conflicts in numeric bounds."""
   lower_bound = None
   upper_bound = None
   lower_exclusive = False
   upper_exclusive = False
 
-  if "ge" in constraints:
-    lower_bound = constraints["ge"]
+  if "ge" in resolved:
+    lower_bound = resolved["ge"]
     lower_exclusive = False
-  if "gt" in constraints:
-    gt_val = constraints["gt"]
+  if "gt" in resolved:
+    gt_val = resolved["gt"]
     if lower_bound is not None:
       if gt_val >= lower_bound:
         lower_bound = gt_val
@@ -304,11 +288,11 @@ def validate_constraint_conflicts(
       lower_bound = gt_val
       lower_exclusive = True
 
-  if "le" in constraints:
-    upper_bound = constraints["le"]
+  if "le" in resolved:
+    upper_bound = resolved["le"]
     upper_exclusive = False
-  if "lt" in constraints:
-    lt_val = constraints["lt"]
+  if "lt" in resolved:
+    lt_val = resolved["lt"]
     if upper_bound is not None:
       if lt_val <= upper_bound:
         upper_bound = lt_val
@@ -327,12 +311,64 @@ def validate_constraint_conflicts(
         f"Conflicting constraints for '{param_name}'{context}: bounds equal at {lower_bound} but one is exclusive"
       )
 
-  # Check length bound conflicts
+
+def _validate_length_bounds(
+  resolved: dict[str, Any], param_name: str, context: str
+) -> None:
+  """Check for logical conflicts in length bounds."""
   if (
-    "min_length" in constraints
-    and "max_length" in constraints
-    and constraints["min_length"] > constraints["max_length"]
+    "min_length" in resolved
+    and "max_length" in resolved
+    and resolved["min_length"] > resolved["max_length"]
   ):
     raise ValueError(
-      f"Conflicting constraints for '{param_name}'{context}: min_length ({constraints['min_length']}) > max_length ({constraints['max_length']})"
+      f"Conflicting constraints for '{param_name}'{context}: min_length ({resolved['min_length']}) > max_length ({resolved['max_length']})"
     )
+
+
+def validate_constraint_conflicts(
+  constraints: dict[str, Any],
+  param_name: str,
+  func_name: str | None = None,
+) -> dict[str, Any]:
+  """
+  Resolve multiple constraints of the same type and validate for conflicts.
+
+  Args:
+    constraints: Dictionary of constraint names to values or lists of values.
+    param_name: Name of the parameter (for error messages).
+    func_name: Optional function/class name (for richer error messages).
+
+  Returns:
+    Dictionary of resolved single-value constraints compatible with Pydantic Field.
+
+  Raises:
+    ValueError: If impossible constraints are detected.
+  """
+  # Context for error messages
+  context = f" (in '{func_name}')" if func_name else ""
+
+  # 1. Resolve same-type constraints (e.g., Ge[5], Ge[10] -> Ge[10])
+  resolved: dict[str, Any] = {}
+  for key, val in constraints.items():
+    if isinstance(val, list):
+      if not val:
+        continue
+      if key in {"ge", "gt", "min_length"}:
+        resolved[key] = max(val)
+      elif key in {"le", "lt", "max_length"}:
+        resolved[key] = min(val)
+      elif key == "multiple_of":
+        resolved[key] = val[-1]
+      else:
+        resolved[key] = val[-1]
+    else:
+      resolved[key] = val
+
+  # 2. Check numeric bound conflicts
+  _validate_numeric_bounds(resolved, param_name, context)
+
+  # 3. Check length bound conflicts
+  _validate_length_bounds(resolved, param_name, context)
+
+  return resolved
