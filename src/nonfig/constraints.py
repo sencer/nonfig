@@ -355,9 +355,9 @@ def validate_constraint_conflicts(
       if not val:
         continue
       if key in {"ge", "gt", "min_length"}:
-        resolved[key] = max(val)
+        resolved[key] = max(cast("list[Any]", val))
       elif key in {"le", "lt", "max_length"}:
-        resolved[key] = min(val)
+        resolved[key] = min(cast("list[Any]", val))
       elif key == "multiple_of":
         resolved[key] = val[-1]
       else:

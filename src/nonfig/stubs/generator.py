@@ -324,7 +324,9 @@ def _transform_ast_node(node: ast.AST, aliases: set[str]) -> ast.AST:
     # Transform the slice (the part inside [])
     if isinstance(node.slice, ast.Tuple):
       new_elts = [_transform_ast_node(elt, aliases) for elt in node.slice.elts]
-      new_slice: ast.AST = ast.Tuple(elts=new_elts, ctx=ast.Load())
+      new_slice: ast.AST = ast.Tuple(
+        elts=cast("list[ast.expr]", new_elts), ctx=ast.Load()
+      )
     else:
       new_slice = _transform_ast_node(node.slice, aliases)
 
@@ -940,7 +942,7 @@ def _build_import_section(
 
   # Filter out top-level nonfig imports that we regenerate, but keep TYPE_CHECKING blocks
   # regardless of what they contain (they will be filtered by usage later)
-  kept_other_imports = []
+  kept_other_imports: list[str] = []
   for imp in other_imports:
     if "from nonfig import" in imp:
       if imp.lstrip().startswith("if ") and "TYPE_CHECKING" in imp:
