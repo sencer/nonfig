@@ -1,4 +1,4 @@
-"""Core type definitions for nonfig."""
+"""Core type definitions: ``Hyper``, ``Leaf``, ``DEFAULT``, and static-analysis protocols."""
 
 from __future__ import annotations
 
@@ -83,11 +83,12 @@ if TYPE_CHECKING:
 
   class ConfigurableFunc[**P, R]:
     """
-    Phantom class to enable `fn.Type` syntax in type annotations.
+    Phantom class enabling ``fn.Type`` and ``fn.Config`` in type annotations.
 
-    This class is never instantiated at runtime. It exists solely to trick
-    type checkers into treating a @configurable function as a Class, which
-    allows accessing attributes like .Type and .Config in type hints.
+    Never instantiated at runtime.  It exists so that type checkers treat
+    a ``@configurable`` function as a class-like namespace, allowing
+    ``fn.Type`` (for nested dependency hints) and ``fn.Config(...)``
+    (for configuration construction) to resolve correctly.
     """
 
     # The .Type attribute for typing arguments: def app(m: mul.Type): ...

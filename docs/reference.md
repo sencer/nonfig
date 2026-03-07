@@ -1,1 +1,3 @@
-# API Reference\n\n::: nonfig
+# API Reference
+
+::: nonfig

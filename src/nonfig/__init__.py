@@ -1,4 +1,9 @@
-"""nonfig - Automatic Pydantic config generation from function signatures."""
+"""nonfig - Automatic Pydantic config generation from function signatures.
+
+Key exports: ``configurable``, ``wrap_external``, ``Hyper``, ``Leaf``,
+``DEFAULT``, constraint markers (``Ge``, ``Le``, …), config loaders
+(``load_json``, ``load_yaml``, ``load_toml``), and ``run_cli``.
+"""
 
 __version__ = "0.1.1"
 
