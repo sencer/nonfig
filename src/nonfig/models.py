@@ -53,7 +53,13 @@ class HyperMarker:
 
 
 class DefaultSentinel:
-  """Sentinel to indicate a field should use its type's default Config."""
+  """Sentinel to indicate a field should use its type's default Config.
+
+  When used as a default value (via ``DEFAULT``), nonfig auto-instantiates
+  the parameter's Config class with *its* defaults at decoration time.
+  For container types (``list``, ``dict``, ``set``, etc.), an empty
+  container is used instead.
+  """
 
   __slots__ = ()
 
@@ -73,7 +79,13 @@ class LeafMarker:
 
 
 class MakeableModel[R](BaseModel):
-  """Base class for all Config models."""
+  """Base class for all generated Config models.
+
+  Config instances are **frozen** (immutable) Pydantic models that support
+  full serialization (``model_dump``, ``model_dump_json``), validation,
+  hashing, and equality comparison.  Call :meth:`make` to produce the
+  configured target (a class instance or a bound function).
+  """
 
   model_config = ConfigDict(
     arbitrary_types_allowed=True,
@@ -246,8 +258,10 @@ def recursive_make(value: Any, visited: set[int] | None = None) -> Any:
   """
   Recursively make nested config objects.
 
-  If value is a MakeableModel, call make() on it.
-  If value is a list/dict, recursively process elements.
+  Traverses the value tree and calls ``make()`` on any
+  :class:`MakeableModel` instances found.  Handles ``list``, ``tuple``,
+  ``dict``, ``set``, ``frozenset``, and abstract ``Sequence``/``Mapping``
+  containers.
 
   Args:
     value: The value to recursively process.
@@ -343,9 +357,12 @@ def recursive_make(value: Any, visited: set[int] | None = None) -> Any:
 
 class BoundFunction[**P, R](partial):  # pyright: ignore[reportMissingTypeArgument]
   """
-  A callable wrapper that exposes hyperparameters as attributes.
+  A callable wrapper that exposes hyperparameters as read-only attributes.
 
-  Inherits from functools.partial for maximum performance.
+  Inherits from :class:`functools.partial` for maximum performance.
+  After ``config.make()`` on a function Config, the returned
+  ``BoundFunction`` instance carries the configured hyperparameters as
+  attributes (e.g. ``fn.lr``, ``fn.epochs``) and is immutable.
   """
 
   __slots__ = ()

@@ -15,23 +15,25 @@ reducing boilerplate and enforcing type safety and validation at definition time
 ```python
 from nonfig import configurable, DEFAULT, Leaf
 
+
 @configurable
 class Optimizer:
-    def __init__(self, lr: float = 0.01, momentum: float = 0.9):
-        self.lr = lr
-        self.momentum = momentum
+  def __init__(self, lr: float = 0.01, momentum: float = 0.9):
+    self.lr = lr
+    self.momentum = momentum
+
 
 @configurable
 class Model:
-    def __init__(
-        self,
-        hidden_size: int = 128,
-        optimizer: Optimizer = DEFAULT,
-        # Use Leaf[T] to accept an instance directly (no .Config transformation)
-        data_loader: Leaf[DataLoader] = DEFAULT
-    ):
-        self.hidden_size = hidden_size
-        self.optimizer = optimizer
+  def __init__(
+    self,
+    hidden_size: int = 128,
+    optimizer: Optimizer = DEFAULT,
+    # Use Leaf[T] to accept an instance directly (no .Config transformation)
+    data_loader: Leaf[DataLoader] = DEFAULT,  # any user-defined class
+  ):
+    self.hidden_size = hidden_size
+    self.optimizer = optimizer
 ```
 
 ## Installation
@@ -51,11 +53,13 @@ The `@configurable` decorator generates a `.Config` class that captures paramete
 ```python
 from nonfig import configurable
 
+
 @configurable
 class Optimizer:
-    def __init__(self, lr: float = 0.01, momentum: float = 0.9):
-        self.lr = lr
-        self.momentum = momentum
+  def __init__(self, lr: float = 0.01, momentum: float = 0.9):
+    self.lr = lr
+    self.momentum = momentum
+
 
 # Direct instantiation still works
 opt = Optimizer(lr=0.001)
@@ -71,10 +75,12 @@ For dataclasses, apply `@configurable` after `@dataclass` for full IDE support:
 from dataclasses import dataclass
 from nonfig import configurable
 
+
 @dataclass
 class Model:
-    hidden_size: int = 128
-    dropout: float = 0.1
+  hidden_size: int = 128
+  dropout: float = 0.1
+
 
 Model = configurable(Model)  # Full autocomplete!
 ```
@@ -86,14 +92,16 @@ For functions, use `Hyper[T]` to mark configurable parameters:
 ```python
 from nonfig import configurable, Hyper, Ge, Gt
 
+
 @configurable
 def train(
-    data: list[float],              # Runtime argument (not a hyperparameter)
-    *,
-    epochs: Hyper[int, Ge[1]] = 100,
-    lr: Hyper[float, Gt[0.0]] = 0.001,
+  data: list[float],  # Runtime argument (not a hyperparameter)
+  *,
+  epochs: Hyper[int, Ge[1]] = 100,
+  lr: Hyper[float, Gt[0.0]] = 0.001,
 ) -> dict:
-    return {"trained": True}
+  return {"trained": True}
+
 
 # Create a configured function
 trainer = train.Config(epochs=50, lr=0.01).make()
@@ -107,15 +115,15 @@ The `Hyper[T]` annotation attaches validation constraints:
 ```python
 from nonfig import configurable, Hyper, Ge, Le, Gt, MinLen, Pattern
 
+
 @configurable
 class Network:
-    def __init__(
-        self,
-        learning_rate: Hyper[float, Gt[0.0]],                 # Required, > 0
-        dropout: Hyper[float, Ge[0.0], Le[1.0]] = 0.5,        # 0 <= x <= 1
-        name: Hyper[str, MinLen[3], Pattern[r"^[a-z]+$"]] = "net",
-    ):
-        ...
+  def __init__(
+    self,
+    learning_rate: Hyper[float, Gt[0.0]],  # Required, > 0
+    dropout: Hyper[float, Ge[0.0], Le[1.0]] = 0.5,  # 0 <= x <= 1
+    name: Hyper[str, MinLen[3], Pattern[r"^[a-z]+$"]] = "net",
+  ): ...
 ```
 
 **Available constraints:** `Ge` (>=), `Gt` (>), `Le` (≤), `Lt` (<), `MinLen`, `MaxLen`, `MultipleOf`, `Pattern`.
@@ -132,14 +140,16 @@ Furthermore, `nonfig` uses **Smart Parameter Propagation**:
 ```python
 @configurable
 class Base:
-    def __init__(self, x: int = 1):
-        self.x = x
+  def __init__(self, x: int = 1):
+    self.x = x
+
 
 # ✅ Sub accepts **kwargs, so it inherits 'x' from Base
 class Sub(Base):
-    def __init__(self, y: int = 2, **kwargs):
-        super().__init__(**kwargs)
-        self.y = y
+  def __init__(self, y: int = 2, **kwargs):
+    super().__init__(**kwargs)
+    self.y = y
+
 
 # Config has both x and y!
 config = Sub.Config(x=10, y=20)
@@ -155,15 +165,16 @@ Define a `__config_validate__` hook for validation across multiple fields:
 ```python
 @configurable
 class Optimizer:
-    def __init__(self, name: str = "Adam", momentum: float | None = None):
-        self.name = name
-        self.momentum = momentum
+  def __init__(self, name: str = "Adam", momentum: float | None = None):
+    self.name = name
+    self.momentum = momentum
 
-    @staticmethod
-    def __config_validate__(config: "Optimizer.Config") -> "Optimizer.Config":
-        if config.name == "SGD" and config.momentum is None:
-            raise ValueError("SGD requires momentum to be set")
-        return config
+  @staticmethod
+  def __config_validate__(config: "Optimizer.Config") -> "Optimizer.Config":
+    if config.name == "SGD" and config.momentum is None:
+      raise ValueError("SGD requires momentum to be set")
+    return config
+
 
 # This raises ValueError
 Optimizer.Config(name="SGD", momentum=None)
@@ -176,11 +187,12 @@ By default, any `@configurable` class used as a type hint is transformed into `T
 ```python
 from nonfig import configurable, Leaf
 
+
 @configurable
 class Processor:
-    def __init__(self, model: Leaf[MyModel]):
-        # 'model' must be a MyModel instance, not MyModel.Config
-        self.model = model
+  def __init__(self, model: Leaf[MyModel]):
+    # 'model' must be a MyModel instance, not MyModel.Config
+    self.model = model
 ```
 
 ### Generic Classes
@@ -190,19 +202,117 @@ Generic classes preserve type parameters in their Config:
 ```python
 @configurable
 class Container[T]:
-    def __init__(self, count: int = 0):
-        self.count = count
+  def __init__(self, count: int = 0):
+    self.count = count
+
 
 # PEP 695 style generics work
 assert hasattr(Container.Config, "__type_params__")
 
 # Generic[T] style also supported
 from typing import Generic, TypeVar
+
 T = TypeVar("T")
 
+
 @configurable
-class OldStyle(Generic[T]):
-    ...
+class OldStyle(Generic[T]): ...
+```
+
+### Enums
+
+`nonfig` supports `Enum` and `StrEnum` natively through Pydantic's validation. This is
+useful for parameters with a fixed set of options.
+
+```python
+from enum import StrEnum
+from nonfig import configurable, Hyper
+
+
+class Precision(StrEnum):
+  FLOAT32 = "float32"
+  FLOAT16 = "float16"
+
+
+@configurable
+def train(*, precision: Hyper[Precision] = Precision.FLOAT32): ...
+
+
+# CLI overrides work with enum values
+# python train.py precision=float16
+```
+
+## External Components
+
+You can make external classes or functions configurable without modifying their source
+code using `wrap_external`. This is particularly useful for library code (e.g., PyTorch,
+JAX, Scikit-learn).
+
+```python
+from torch.optim import Adam
+from nonfig import wrap_external, configurable, DEFAULT
+
+# Wrap the external class to get a Config class
+AdamConfig = wrap_external(Adam)
+
+
+@configurable
+class Trainer:
+  def __init__(self, optimizer: AdamConfig = DEFAULT):
+    self.optimizer = optimizer
+
+
+# Instantiate with overrides
+config = Trainer.Config(optimizer=AdamConfig(lr=0.01))
+trainer = config.make()  # trainer.optimizer is a real Adam instance
+```
+
+### Overriding External Parameters
+
+You can provide type overrides when wrapping external components to add `Hyper`
+constraints or specify nested configurations:
+
+```python
+AdamConfig = wrap_external(Adam, overrides={"lr": Hyper[float, Gt(0)]})
+```
+
+### Selective vs. Greedy Configuration
+
+There is a key difference in how parameters are extracted between the two methods:
+
+- **`@configurable` (Selective):** Only extracts parameters explicitly annotated with `Hyper[...]`, `DEFAULT`, or a `Config` class as a default value. Regular parameters are treated as runtime arguments that must be passed to `.make()`.
+- **`wrap_external` (Greedy):** Automatically extracts **every parameter** in the target's signature into the configuration. This is because external code is assumed to be fully delegated to the `nonfig` construction engine.
+
+To limit which parameters are configurable in an external library, wrap it in a local `@configurable` function:
+
+```python
+# Instead of wrapping Adam directly (greedy):
+# AdamConfig = wrap_external(Adam)
+
+# Wrap it locally to only expose 'lr' (selective):
+@configurable
+def my_adam(params, lr: Hyper[float] = 0.001):
+  return Adam(params, lr=lr)
+```
+
+## Function Type Proxies
+
+When using a `@configurable` function as a type hint for a nested configuration, use
+`.Type` to ensure proper validation and IDE support.
+
+```python
+@configurable
+def preprocess(data: list) -> list: ...
+
+
+@configurable
+class Pipeline:
+  def __init__(self, preprocessor: preprocess.Type = DEFAULT):
+    self.preprocessor = preprocessor
+
+
+# The Config for Pipeline will now correctly handle 'preprocessor'
+# as either the function itself or its Config.
 ```
 
 ## Integration with JAX, Flax & jaxtyping
@@ -218,13 +328,14 @@ from jaxtyping import Float, Array, jaxtyped
 from beartype import beartype
 from nonfig import configurable, Hyper
 
+
 @configurable
 @jaxtyped(typechecker=beartype)
 def scale_tensor(
-    tensor: Float[Array, "batch dim"],
-    scale: Hyper[float] = 1.0
+  tensor: Float[Array, "batch dim"], scale: Hyper[float] = 1.0
 ) -> Float[Array, "batch dim"]:
-    return tensor * scale
+  return tensor * scale
+
 
 # Dimension metadata "batch dim" is preserved in scale_tensor.Config
 # Runtime checks correctly catch invalid shapes passed to the configured function
@@ -252,17 +363,20 @@ def func(...): ...
 ```python
 import flax.linen as nn
 
+
 @configurable
 class MyLayer(nn.Module):
-    features: Hyper[int]
-    dtype: Hyper[Any] = jnp.float32
+  features: Hyper[int]
+  dtype: Hyper[Any] = jnp.float32
 
-    @nn.compact
-    def __call__(self, x):
-        # features is available as self.features
-        kernel = self.param('kernel', nn.initializers.lecun_normal(),
-                          (x.shape[-1], self.features))
-        return jnp.dot(x, kernel)
+  @nn.compact
+  def __call__(self, x):
+    # features is available as self.features
+    kernel = self.param(
+      "kernel", nn.initializers.lecun_normal(), (x.shape[-1], self.features)
+    )
+    return jnp.dot(x, kernel)
+
 
 # Configure the module
 config = MyLayer.Config(features=128)
@@ -278,13 +392,15 @@ Run configurable targets with command-line overrides:
 ```python
 from nonfig import configurable, Hyper, run_cli
 
+
 @configurable
 def train(*, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01) -> dict:
-    return {"epochs": epochs, "lr": lr}
+  return {"epochs": epochs, "lr": lr}
+
 
 if __name__ == "__main__":
-    result = run_cli(train)  # Parse sys.argv
-    print(result)
+  result = run_cli(train)  # Parse sys.argv
+  print(result)
 ```
 
 ```bash
@@ -357,7 +473,7 @@ fn = train.Config(epochs=100).make()
 
 # Then call the optimized bound function repeatedly
 for batch in data:
-    fn(batch)
+  fn(batch)
 ```
 
 ### Use Keyword-Only Parameters
@@ -367,8 +483,7 @@ Place hyperparameters after `*` to make them keyword-only to avoid argument conf
 ```python
 # ✅ Recommended
 @configurable
-def train(data, *, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01):
-    ...
+def train(data, *, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01): ...
 ```
 
 ## Advanced Topics
@@ -378,10 +493,11 @@ def train(data, *, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01):
 - **Reserved names**: Descriptive errors when clashing with Pydantic or nonfig internals.
 - **Thread safety**: Concurrent config creation is fully supported.
 
-## Known Limitations
+## Design Decisions
 
-### Function Config Overrides
-When using `Config.make()` on a function, the returned callable (a `BoundFunction`) has its hyperparameters "baked in". You cannot override them by passing keyword arguments during the call, as this will raise a `TypeError` (multiple values for keyword argument).
+### Immutable Hyperparameters
+
+When using `Config.make()` on a function, the returned callable (a `BoundFunction`) has its hyperparameters "baked in". By design, you cannot override them by passing keyword arguments during the call. This ensures that the configured function behaves predictably according to its configuration. Passing an override at call-time will raise a `TypeError` (multiple values for keyword argument).
 
 ```python
 # Create function with baked-in params
@@ -427,6 +543,7 @@ fn(data)
 | Export | Description |
 |:-------|:------------|
 | `run_cli(target, args)` | Run target with CLI overrides |
+| `wrap_external(target)` | Wrap external class/function for configuration |
 | `load_json(path)` | Load dict from JSON file |
 | `load_toml(path)` | Load dict from TOML file |
 | `load_yaml(path)` | Load dict from YAML file (requires `pyyaml`) |

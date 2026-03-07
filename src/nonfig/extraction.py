@@ -1,4 +1,9 @@
-"""Parameter extraction utilities for nonfig."""
+"""Parameter extraction from function signatures and class definitions.
+
+Provides utilities for inspecting ``Hyper``-annotated parameters,
+unwrapping constraints, handling ``DEFAULT`` sentinels, and
+transforming type annotations for nested configuration support.
+"""
 
 # pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false
 
@@ -361,20 +366,18 @@ def _get_config_class(value: Any) -> type[MakeableModel[Any]] | None:
   if isinstance(value, type) and value in {int, float, str, bool}:
     return None
 
-  # Handle types (cached)
+  # Types (cached)
   if isinstance(value, type):
     return _get_config_class_for_type(value)
 
-  # Case 2: value is a Config instance (MakeableModel instance)
+  # Instances of MakeableModel
   if isinstance(value, MakeableModel):
     return type(value)
 
-  # Optimization: only check types and callables for the rest
+  # Callables with a .Config attribute (e.g. @configurable functions)
   if not callable(value):
     return None
 
-  # Case 3: value has a .Config attribute (configurable function)
-  # For callables, we don't cache as they might be dynamically created/modified or unhashable closures
   config_cls = getattr(value, "Config", None)
   if isinstance(config_cls, type) and issubclass(config_cls, MakeableModel):
     return config_cls

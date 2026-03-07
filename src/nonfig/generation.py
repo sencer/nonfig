@@ -1,4 +1,9 @@
-"""The configurable decorator and related utilities."""
+"""The ``@configurable`` decorator and ``wrap_external`` helper.
+
+This module contains the core decoration logic that generates
+``MakeableModel`` Config classes for user-defined classes, dataclasses,
+and functions.
+"""
 
 # pyright: reportAttributeAccessIssue=false, reportPrivateUsage=false, reportUnknownVariableType=false
 # pyright: reportCallIssue=false, reportArgumentType=false, reportFunctionMemberAccess=false
@@ -194,13 +199,23 @@ def wrap_external(
   """
   Wrap an external class or function to make it configurable without modification.
 
-  Returns a Config class (MakeableModel) that can be used in other configs.
-  Calling .make() on the returned config will instantiate the original target.
+  Unlike ``@configurable`` (which only extracts ``Hyper``-annotated
+  parameters), ``wrap_external`` extracts **every** parameter in the
+  target's signature.  This is intended for library code that you
+  cannot (or don't want to) modify.
+
+  Returns a Config class (``MakeableModel`` subclass) whose ``make()``
+  instantiates the original target.
 
   Args:
     target: The class or function to wrap.
-    overrides: Optional dictionary mapping parameter names to types/configs
-               to override the extracted ones.
+    overrides: Optional mapping of parameter names to replacement types.
+               Use this to add ``Hyper`` constraints or substitute nested
+               Config types that the automatic extraction cannot infer.
+
+  Raises:
+    ValueError: If the target contains positional-only parameters.
+    TypeError: If *target* is not a class or callable.
 
   Example:
     ```python
@@ -650,7 +665,13 @@ def _create_type_proxy(
   func: Callable[..., Any],
   config_cls: type[MakeableModel[Any]],
 ) -> type:
-  """Create a proxy type for type hinting nested function configs."""
+  """Create a proxy type so that ``fn.Type`` can be used as a type hint.
+
+  When a ``@configurable`` function is used as a nested dependency
+  (e.g. ``preprocessor: preprocess.Type = DEFAULT``), the ``.Type``
+  attribute provides a class whose ``.Config`` resolves to the
+  function's Config class, enabling automatic nesting.
+  """
 
   class _TypeProxy:
     Config = config_cls
