@@ -101,7 +101,7 @@ def test_config_make_returns_partial_function() -> None:
 
   test_series = pd.Series([1.0, 2.0, 3.0])
   result: float = partial_fn(data=test_series)
-  assert result == test_series.sum() * 5.0
+  assert result == pytest.approx(test_series.sum() * 5.0)
 
 
 def test_make_method_produces_correct_function() -> None:
@@ -121,7 +121,7 @@ def test_make_method_produces_correct_function() -> None:
 
   test_series = pd.Series([1.0, 2.0, 3.0])
   result: float = made_function(data=test_series)
-  assert result == test_series.sum() * 5.0
+  assert result == pytest.approx(test_series.sum() * 5.0)
 
 
 def test_configurable_with_required_hyper_param() -> None:
@@ -285,7 +285,7 @@ def test_config_dict_roundtrip() -> None:
   # Recreate from dict
   config2 = process.Config(**config_dict)
   assert config2.period == 20
-  assert config2.alpha == 0.8
+  assert config2.alpha == pytest.approx(0.8)
 
   # Should produce same function behavior
   fn1 = config1.make()
@@ -310,7 +310,7 @@ def test_config_copy_and_modify() -> None:
 
   assert config1.value == 10
   assert config2.value == 20
-  assert config2.multiplier == 2.0
+  assert config2.multiplier == pytest.approx(2.0)
 
 
 def test_partial_config_update() -> None:
@@ -374,7 +374,7 @@ def test_json_serialization() -> None:
   parsed = json.loads(json_str)
   config2 = process.Config(**parsed)
   assert config2.period == 20
-  assert config2.threshold == 0.8
+  assert config2.threshold == pytest.approx(0.8)
 
 
 def test_config_equality() -> None:

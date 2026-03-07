@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
+import pytest
+
 from nonfig import Ge, Gt, Hyper, Le, MakeableModel, configurable
 
 
@@ -59,12 +61,12 @@ def test_dataclass_config() -> None:
 def test_class_instantiation() -> None:
   """Test creating a class instance."""
   obj = SimpleClass()
-  assert obj.multiplier == 2.0
-  assert obj.transform(10.0) == 20.0
+  assert obj.multiplier == pytest.approx(2.0)
+  assert obj.transform(10.0) == pytest.approx(20.0)
 
   obj2 = SimpleClass(multiplier=3.0)
-  assert obj2.multiplier == 3.0
-  assert obj2.transform(10.0) == 30.0
+  assert obj2.multiplier == pytest.approx(3.0)
+  assert obj2.transform(10.0) == pytest.approx(30.0)
 
 
 def test_class_config() -> None:
@@ -72,5 +74,5 @@ def test_class_config() -> None:
   config = SimpleClass.Config(multiplier=4.0)
   obj = config.make()  # make() now returns instance directly
   assert isinstance(obj, SimpleClass)
-  assert obj.multiplier == 4.0
-  assert obj.transform(10.0) == 40.0
+  assert obj.multiplier == pytest.approx(4.0)
+  assert obj.transform(10.0) == pytest.approx(40.0)

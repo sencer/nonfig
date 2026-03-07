@@ -101,15 +101,15 @@ class TestCliValueParsing:
     """Parsing numeric strings with decimal returns float."""
     from nonfig.cli.runner import _parse_value
 
-    assert _parse_value("3.14", None) == 3.14
-    assert _parse_value("-0.5", None) == -0.5
+    assert _parse_value("3.14", None) == pytest.approx(3.14)
+    assert _parse_value("-0.5", None) == pytest.approx(-0.5)
 
   def test_parse_with_type_hint(self) -> None:
     """Parsing with type hint uses that type."""
     from nonfig.cli.runner import _parse_value
 
     assert _parse_value("42", int) == 42
-    assert _parse_value("3.14", float) == 3.14
+    assert _parse_value("3.14", float) == pytest.approx(3.14)
     assert _parse_value("hello", str) == "hello"
 
   def test_parse_string_fallback(self) -> None:

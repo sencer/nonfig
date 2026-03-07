@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from nonfig import Ge, Hyper, configurable
 
@@ -26,7 +27,7 @@ def test_nan_handling_in_series() -> None:
   # Series with NaN
   series_with_nan = pd.Series([1.0, 2.0, np.nan, 4.0])
   result = fn(data=series_with_nan)
-  assert result == 7.0  # 1 + 2 + 4
+  assert result == pytest.approx(7.0)  # 1 + 2 + 4
 
 
 def test_empty_dataframe() -> None:
@@ -46,7 +47,7 @@ def test_empty_dataframe() -> None:
 
   empty_df = pd.DataFrame()
   result = fn(data=empty_df)
-  assert result == 42.0
+  assert result == pytest.approx(42.0)
 
 
 def test_series_with_different_dtypes() -> None:
@@ -93,7 +94,7 @@ def test_series_index_preservation() -> None:
   result = fn(data=custom_series)
 
   assert list(result.index) == ["a", "b", "c"]
-  assert result["a"] == 6.0
+  assert result["a"] == pytest.approx(6.0)
 
 
 def test_dataframe_column_operations() -> None:

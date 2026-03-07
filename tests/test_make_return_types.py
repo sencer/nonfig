@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+
 from nonfig import Hyper, configurable
 
 
@@ -33,7 +35,7 @@ class TestMakeReturnTypes:
 
     # Call with data param
     result = fn(data=[1.0, 2.0, 3.0])
-    assert result == 18.0  # (1+2+3) * 3
+    assert result == pytest.approx(18.0)  # (1+2+3) * 3
 
   def test_class_make_returns_instance(self) -> None:
     """For classes, make() returns the instance directly."""

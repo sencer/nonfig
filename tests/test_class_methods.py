@@ -27,11 +27,11 @@ def test_class_method_basic() -> None:
 
   # Test direct call still works
   result = calc.multiply(5.0)
-  assert result == 20.0  # 10 + (5 * 2)
+  assert result == pytest.approx(20.0)  # 10 + (5 * 2)
 
   # Test with custom factor
   result = calc.multiply(5.0, factor=3)
-  assert result == 25.0  # 10 + (5 * 3)
+  assert result == pytest.approx(25.0)  # 10 + (5 * 3)
 
 
 def test_class_method_config() -> None:
@@ -44,7 +44,7 @@ def test_class_method_config() -> None:
 
   # Should work when called with instance
   result = configured_fn(calc, value=5.0)
-  assert result == 30.0  # 10 + (5 * 4)
+  assert result == pytest.approx(30.0)  # 10 + (5 * 4)
 
 
 def test_field_constraints() -> None:

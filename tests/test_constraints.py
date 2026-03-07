@@ -69,7 +69,7 @@ def test_le_constraint() -> None:
 def test_gt_constraint() -> None:
   """Test Gt (greater than) constraint."""
   config = numeric_constraints.Config(gt_val=0.1)
-  assert config.gt_val == 0.1
+  assert config.gt_val == pytest.approx(0.1)
 
   with pytest.raises(ValidationError):
     numeric_constraints.Config(gt_val=0.0)
@@ -78,7 +78,7 @@ def test_gt_constraint() -> None:
 def test_lt_constraint() -> None:
   """Test Lt (less than) constraint."""
   config = numeric_constraints.Config(lt_val=9.9)
-  assert config.lt_val == 9.9
+  assert config.lt_val == pytest.approx(9.9)
 
   with pytest.raises(ValidationError):
     numeric_constraints.Config(lt_val=10.0)
@@ -130,15 +130,15 @@ def test_combined_constraints() -> None:
   config = numeric_constraints.Config(ge_val=10, le_val=90, gt_val=2.5, lt_val=8.0)
   assert config.ge_val == 10
   assert config.le_val == 90
-  assert config.gt_val == 2.5
-  assert config.lt_val == 8.0
+  assert config.gt_val == pytest.approx(2.5)
+  assert config.lt_val == pytest.approx(8.0)
 
 
 def test_function_calls_with_constraints() -> None:
   """Test that functions work correctly with constrained values."""
   result = numeric_constraints(10.0)
   # 10.0 + 5 + 50 + 1.5 + 5.0 = 71.5
-  assert result == 71.5
+  assert result == pytest.approx(71.5)
 
   result = string_constraints()
   assert result == "hello: test@example.com"
@@ -593,27 +593,27 @@ def test_numeric_constraints_accept_int_and_float() -> None:
   ge_int = Ge[5]
   ge_float = Ge[5.5]
   assert ge_int.ge == 5
-  assert ge_float.ge == 5.5
+  assert ge_float.ge == pytest.approx(5.5)
 
   le_int = Le[10]
   le_float = Le[10.5]
   assert le_int.le == 10
-  assert le_float.le == 10.5
+  assert le_float.le == pytest.approx(10.5)
 
   gt_int = Gt[0]
   gt_float = Gt[0.1]
   assert gt_int.gt == 0
-  assert gt_float.gt == 0.1
+  assert gt_float.gt == pytest.approx(0.1)
 
   lt_int = Lt[100]
   lt_float = Lt[100.5]
   assert lt_int.lt == 100
-  assert lt_float.lt == 100.5
+  assert lt_float.lt == pytest.approx(100.5)
 
   mo_int = MultipleOf[5]
   mo_float = MultipleOf[2.5]
   assert mo_int.multiple_of == 5
-  assert mo_float.multiple_of == 2.5
+  assert mo_float.multiple_of == pytest.approx(2.5)
 
 
 def test_length_constraints_accept_zero() -> None:

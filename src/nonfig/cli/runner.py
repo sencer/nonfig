@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING, Any, TypeVar, get_args, get_origin
+from typing import TYPE_CHECKING, Any, get_args, get_origin
 
 from pydantic import ValidationError
 
@@ -15,8 +15,6 @@ if TYPE_CHECKING:
   from nonfig.models import MakeableModel
 
 __all__ = ["run_cli"]
-
-T = TypeVar("T")
 
 
 def _print_help(
@@ -197,7 +195,7 @@ def _apply_type_coercion(
   return result
 
 
-def run_cli(
+def run_cli[T](
   target: Callable[..., T] | type[T],
   args: list[str] | None = None,
 ) -> T:
