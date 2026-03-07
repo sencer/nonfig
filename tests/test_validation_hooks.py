@@ -64,7 +64,7 @@ class TestConfigValidateHook:
         return config
 
     config = Normalizer.Config(scale=0.5)
-    assert config.scale == 0.5
+    assert config.scale == pytest.approx(0.5)
 
   def test_config_validate_with_function(self) -> None:
     """__config_validate__ works with configurable functions."""

@@ -66,7 +66,7 @@ def test_default_with_function_config() -> None:
   test_series = pd.Series([1.0, 2.0, 3.0])
   result: float = fn(data=test_series)
   # inner: (1+2+3) * 2.0 = 12.0, outer: 12.0 + 10.0 = 22.0
-  assert result == 22.0
+  assert result == pytest.approx(22.0)
 
   # Test with overrides
   config2 = outer_transform.Config(
@@ -76,7 +76,7 @@ def test_default_with_function_config() -> None:
   fn2 = config2.make()
   result2: float = fn2(data=test_series)
   # inner: (1+2+3) * 3.0 = 18.0, outer: 18.0 + 5.0 = 23.0
-  assert result2 == 23.0
+  assert result2 == pytest.approx(23.0)
 
 
 def test_default_with_class_config() -> None:
@@ -84,16 +84,16 @@ def test_default_with_class_config() -> None:
   # Test with defaults
   config = OuterModel.Config()
   assert config.hidden_size == 128
-  assert config.optimizer_config.learning_rate == 0.01
-  assert config.optimizer_config.momentum == 0.9
+  assert config.optimizer_config.learning_rate == pytest.approx(0.01)
+  assert config.optimizer_config.momentum == pytest.approx(0.9)
 
   model = config.make()
   assert isinstance(model, OuterModel)
   assert model.hidden_size == 128
   # With _recursive_make, nested configs are automatically made into instances
   assert isinstance(model.optimizer_config, InnerOptimizer)
-  assert model.optimizer_config.learning_rate == 0.01
-  assert model.optimizer_config.momentum == 0.9
+  assert model.optimizer_config.learning_rate == pytest.approx(0.01)
+  assert model.optimizer_config.momentum == pytest.approx(0.9)
 
   # Test with overrides
   config2 = OuterModel.Config(
@@ -105,8 +105,8 @@ def test_default_with_class_config() -> None:
   assert model2.hidden_size == 256
   # Nested config is automatically made into an instance
   assert isinstance(model2.optimizer_config, InnerOptimizer)
-  assert model2.optimizer_config.learning_rate == 0.001
-  assert model2.optimizer_config.momentum == 0.95
+  assert model2.optimizer_config.learning_rate == pytest.approx(0.001)
+  assert model2.optimizer_config.momentum == pytest.approx(0.95)
 
 
 def test_default_serialization() -> None:
@@ -117,8 +117,8 @@ def test_default_serialization() -> None:
   # Serialize to dict
   config_dict = config.model_dump()
   assert "inner_fn" in config_dict
-  assert config_dict["inner_fn"]["multiplier"] == 2.0
-  assert config_dict["offset"] == 10.0
+  assert config_dict["inner_fn"]["multiplier"] == pytest.approx(2.0)
+  assert config_dict["offset"] == pytest.approx(10.0)
 
   # Serialize to JSON
   config_json = config.model_dump_json()
@@ -127,14 +127,14 @@ def test_default_serialization() -> None:
 
   # Deserialize from JSON
   loaded_config = outer_transform.Config.model_validate_json(config_json)
-  assert loaded_config.offset == 10.0
-  assert loaded_config.inner_fn.multiplier == 2.0
+  assert loaded_config.offset == pytest.approx(10.0)
+  assert loaded_config.inner_fn.multiplier == pytest.approx(2.0)
 
   # Verify it still works
   fn = loaded_config.make()
   test_series = pd.Series([1.0, 2.0, 3.0])
   result: float = fn(data=test_series)
-  assert result == 22.0
+  assert result == pytest.approx(22.0)
 
 
 def test_default_with_non_config_type_raises_error() -> None:

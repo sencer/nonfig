@@ -21,10 +21,10 @@ def test_float_precision_boundaries() -> None:
 
   # Test exact boundary values
   config1 = process.Config(value=0.0)
-  assert config1.value == 0.0
+  assert config1.value == pytest.approx(0.0)
 
   config2 = process.Config(value=1.0)
-  assert config2.value == 1.0
+  assert config2.value == pytest.approx(1.0)
 
   # Test very close to boundary (floating point edge case)
   config3 = process.Config(value=0.9999999999999999)
@@ -75,7 +75,7 @@ def test_negative_zero() -> None:
 
   # -0.0 should be treated as 0.0 and pass Ge[0.0]
   config = process.Config(value=-0.0)
-  assert config.value == 0.0
+  assert config.value == pytest.approx(0.0)
 
 
 def test_maxlen_at_exact_limit() -> None:

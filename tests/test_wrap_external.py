@@ -82,12 +82,12 @@ def test_wrap_external_class():
 def test_wrap_external_function():
   config = FactoryConfig(x=10.0, y=2.0)
   bound_fn = config.make()
-  assert bound_fn() == 12.0
+  assert bound_fn() == pytest.approx(12.0)
 
   # Nested in another config
   app_config = AppConfig.Config(factory=FactoryConfig(x=5.0))
   app = app_config.make()
-  assert app.factory() == 6.0
+  assert app.factory() == pytest.approx(6.0)
 
 
 def test_serialization():

@@ -57,7 +57,7 @@ def test_int_to_float_coercion() -> None:
 
   # Int should coerce to float
   config = process.Config(value=42)
-  assert config.value == 42.0
+  assert config.value == pytest.approx(42.0)
   assert isinstance(config.value, float)
 
 

@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal, assert_type
 
+import pytest
+
 from nonfig import DEFAULT, Ge, Hyper, Le, Leaf, MakeableModel, configurable
 
 # --- Basic classes ---
@@ -192,7 +194,7 @@ class TestNestedConfigTyping:
     config = Pipeline.Config()  # Uses DEFAULT for nested
     pipeline = config.make()
     assert pipeline.model.x == 10  # Model's default
-    assert pipeline.optimizer.lr == 0.01  # Optimizer's default
+    assert pipeline.optimizer.lr == pytest.approx(0.01)  # Optimizer's default
 
 
 class TestConfigurableEqualsPattern:

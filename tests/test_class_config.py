@@ -72,7 +72,7 @@ class CallableModel:
 def test_dataclass_basic() -> None:
   """Test basic dataclass instantiation with defaults."""
   model = DataclassModel()
-  assert model.learning_rate == 0.01
+  assert model.learning_rate == pytest.approx(0.01)
   assert model.batch_size == 32
   assert model.name == "default"
 
@@ -80,7 +80,7 @@ def test_dataclass_basic() -> None:
 def test_dataclass_with_params() -> None:
   """Test dataclass with custom parameters."""
   model = DataclassModel(learning_rate=0.001, batch_size=64, name="custom")
-  assert model.learning_rate == 0.001
+  assert model.learning_rate == pytest.approx(0.001)
   assert model.batch_size == 64
   assert model.name == "custom"
 
@@ -90,7 +90,7 @@ def test_dataclass_config_class() -> None:
   assert hasattr(DataclassModel, "Config")
   config = DataclassModel.Config(learning_rate=0.005, batch_size=16)
   data = config.model_dump()
-  assert data["learning_rate"] == 0.005
+  assert data["learning_rate"] == pytest.approx(0.005)
   assert data["batch_size"] == 16
 
 
@@ -99,7 +99,7 @@ def test_dataclass_config_make() -> None:
   config = DataclassModel.Config(learning_rate=0.1, batch_size=8)
   model = config.make()  # Now returns instance directly
   assert isinstance(model, DataclassModel)
-  assert model.learning_rate == 0.1
+  assert model.learning_rate == pytest.approx(0.1)
   assert model.batch_size == 8
 
 
@@ -107,7 +107,7 @@ def test_dataclass_validation() -> None:
   """Test that constraints are validated for dataclass."""
   # Valid values
   config = DataclassModel.Config(learning_rate=0.5, batch_size=10)
-  assert config.learning_rate == 0.5
+  assert config.learning_rate == pytest.approx(0.5)
 
   # Invalid: learning_rate > 1.0
   with pytest.raises(ValidationError):
@@ -121,7 +121,7 @@ def test_dataclass_validation() -> None:
 def test_regular_class_basic() -> None:
   """Test basic regular class instantiation."""
   obj = RegularClass()
-  assert obj.threshold == 0.5
+  assert obj.threshold == pytest.approx(0.5)
   assert obj.max_iterations == 100
   assert obj.verbose is False
 
@@ -129,7 +129,7 @@ def test_regular_class_basic() -> None:
 def test_regular_class_with_params() -> None:
   """Test regular class with custom parameters."""
   obj = RegularClass(threshold=0.8, max_iterations=50, verbose=True)
-  assert obj.threshold == 0.8
+  assert obj.threshold == pytest.approx(0.8)
   assert obj.max_iterations == 50
   assert obj.verbose is True
 
@@ -140,7 +140,7 @@ def test_regular_class_config() -> None:
   config = RegularClass.Config(threshold=0.3, max_iterations=200)
   obj = config.make()  # Now returns instance directly
   assert isinstance(obj, RegularClass)
-  assert obj.threshold == 0.3
+  assert obj.threshold == pytest.approx(0.3)
   assert obj.max_iterations == 200
   assert obj.run() == "Running with threshold=0.3, iterations=200"
 
@@ -160,11 +160,11 @@ def test_callable_class() -> None:
   """Test callable class (has __call__)."""
   model = CallableModel()
   result = model(10.0)
-  assert result == 20.0  # 10 * 2.0 + 0.0
+  assert result == pytest.approx(20.0)  # 10 * 2.0 + 0.0
 
   model2 = CallableModel(multiplier=3.0, offset=5.0)
   result2 = model2(10.0)
-  assert result2 == 35.0  # 10 * 3.0 + 5.0
+  assert result2 == pytest.approx(35.0)  # 10 * 3.0 + 5.0
 
 
 def test_callable_class_config() -> None:
@@ -173,7 +173,7 @@ def test_callable_class_config() -> None:
   model = config.make()  # Now returns instance directly
   assert isinstance(model, CallableModel)
   result = model(5.0)
-  assert result == 30.0  # 5 * 4.0 + 10.0
+  assert result == pytest.approx(30.0)  # 5 * 4.0 + 10.0
 
 
 # Define nested config classes at module level for proper type resolution
@@ -214,5 +214,5 @@ def test_nested_class_configs() -> None:
     multiplier=3.0,
     inner=InnerModel.Config(factor=5.0),
   )
-  assert outer_config.multiplier == 3.0
-  assert outer_config.inner.factor == 5.0
+  assert outer_config.multiplier == pytest.approx(3.0)
+  assert outer_config.inner.factor == pytest.approx(5.0)

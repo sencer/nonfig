@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import ClassVar, cast
 
 import pandas as pd
+import pytest
 
 from nonfig import DEFAULT, Ge, Gt, Hyper, MakeableModel, configurable
 
@@ -46,7 +47,7 @@ def test_module_level_nested_config() -> None:
   test_series = pd.Series([1.0, 2.0, 3.0])
   result: float = fn(data=test_series)
   # inner: (1+2+3) * 2.0 = 12.0, outer: 12.0 + 10.0 = 22.0
-  assert result == 22.0
+  assert result == pytest.approx(22.0)
 
   # Test with overrides
   # Note: Type checker doesn't know about dynamically generated Config classes,
@@ -58,7 +59,7 @@ def test_module_level_nested_config() -> None:
   fn2 = config2.make()
   result2: float = fn2(data=test_series)
   # inner: (1+2+3) * 3.0 = 18.0, outer: 18.0 + 5.0 = 23.0
-  assert result2 == 23.0
+  assert result2 == pytest.approx(23.0)
 
 
 # --- Direct call pattern tests ---
@@ -85,11 +86,11 @@ def test_unified_pattern_direct_call() -> None:
 
   # Direct call uses the function itself - works correctly
   result = direct_outer_unified(test_data)
-  assert result == (6.0 * 2.0) + 100.0  # 112.0
+  assert result == pytest.approx((6.0 * 2.0) + 100.0)  # 112.0
 
   # Direct call with explicit function
   result2 = direct_outer_unified(test_data, nested=direct_inner)
-  assert result2 == 112.0
+  assert result2 == pytest.approx(112.0)
 
 
 def test_unified_pattern_config() -> None:
@@ -102,14 +103,14 @@ def test_unified_pattern_config() -> None:
   # Via Config.make() with default
   fn_default = direct_outer_unified.Config().make()
   result_default = fn_default(test_data)
-  assert result_default == 112.0
+  assert result_default == pytest.approx(112.0)
 
   # Via Config.make() with override
   fn_override = direct_outer_unified.Config(
     nested=direct_inner.Config(multiplier=3.0)
   ).make()
   result_override = fn_override(test_data)
-  assert result_override == 118.0  # (6.0 * 3.0) + 100.0
+  assert result_override == pytest.approx(118.0)  # (6.0 * 3.0) + 100.0
 
 
 """Test nested configs in containers - list, dict, Sequence, Mapping, etc."""
@@ -177,7 +178,7 @@ def test_list_with_default() -> None:
   config = NetworkWithList.Config()
   network = config.make()
   assert network.layers == []
-  assert network(10.0) == 10.0
+  assert network(10.0) == pytest.approx(10.0)
 
 
 def test_list_with_explicit_configs() -> None:
@@ -186,7 +187,7 @@ def test_list_with_explicit_configs() -> None:
     layers=[Layer.Config(scale=2.0), Layer.Config(scale=3.0)]
   )
   network = config.make()
-  assert network(10.0) == 60.0  # 10 * 2 * 3
+  assert network(10.0) == pytest.approx(60.0)  # 10 * 2 * 3
 
 
 def test_sequence_with_default() -> None:
@@ -194,7 +195,7 @@ def test_sequence_with_default() -> None:
   config = NetworkWithSequence.Config()
   network = config.make()
   assert network.layers == []
-  assert network(10.0) == 10.0
+  assert network(10.0) == pytest.approx(10.0)
 
 
 def test_sequence_with_explicit_configs() -> None:
@@ -203,7 +204,7 @@ def test_sequence_with_explicit_configs() -> None:
     layers=[Layer.Config(scale=2.0), Layer.Config(scale=0.5)]
   )
   network = config.make()
-  assert network(10.0) == 10.0  # 10 * 2 * 0.5
+  assert network(10.0) == pytest.approx(10.0)  # 10 * 2 * 0.5
 
 
 def test_dict_with_default() -> None:
@@ -211,7 +212,7 @@ def test_dict_with_default() -> None:
   config = NetworkWithDict.Config()
   network = config.make()
   assert network.layers == {}
-  assert network(10.0) == 10.0
+  assert network(10.0) == pytest.approx(10.0)
 
 
 def test_dict_with_explicit_configs() -> None:
@@ -220,7 +221,7 @@ def test_dict_with_explicit_configs() -> None:
     layers={"first": Layer.Config(scale=2.0), "second": Layer.Config(scale=5.0)}
   )
   network = config.make()
-  assert network(1.0) == 10.0  # 1 * 2 * 5
+  assert network(1.0) == pytest.approx(10.0)  # 1 * 2 * 5
 
 
 def test_mapping_with_default() -> None:
@@ -228,7 +229,7 @@ def test_mapping_with_default() -> None:
   config = NetworkWithMapping.Config()
   network = config.make()
   assert network.layers == {}
-  assert network(10.0) == 10.0
+  assert network(10.0) == pytest.approx(10.0)
 
 
 def test_mapping_with_explicit_configs() -> None:
@@ -237,7 +238,7 @@ def test_mapping_with_explicit_configs() -> None:
     layers={"a": Layer.Config(scale=3.0), "b": Layer.Config(scale=2.0)}
   )
   network = config.make()
-  assert network(5.0) == 30.0  # 5 * 3 * 2
+  assert network(5.0) == pytest.approx(30.0)  # 5 * 3 * 2
 
 
 """Regression tests for nested dictionary handling in configurations."""
@@ -544,7 +545,7 @@ def test_function_nesting_class() -> None:
   fn = config.make()
   result: float = fn(data=test_data)
   # scaler applies scale=1.0: 6.0 * 1.0 = 6.0, extra=5.0: 6.0 + 5.0 = 11.0
-  assert result == 11.0
+  assert result == pytest.approx(11.0)
 
   # Test with custom configs
   config2 = function_nesting_class.Config(
@@ -554,7 +555,7 @@ def test_function_nesting_class() -> None:
   fn2 = config2.make()
   result2: float = fn2(data=test_data)
   # scaler applies scale=2.0: 6.0 * 2.0 = 12.0, extra=10.0: 12.0 + 10.0 = 22.0
-  assert result2 == 22.0
+  assert result2 == pytest.approx(22.0)
 
 
 def test_function_nesting_dataclass() -> None:
@@ -566,7 +567,7 @@ def test_function_nesting_dataclass() -> None:
   fn = config.make()
   result: float = fn(data=test_data)
   # sum * multiplier: 6.0 * 2.0 = 12.0, offset=10.0: 12.0 + 10.0 = 22.0
-  assert result == 22.0
+  assert result == pytest.approx(22.0)
 
   # Test with custom configs
   config2 = function_nesting_dataclass.Config(
@@ -576,7 +577,7 @@ def test_function_nesting_dataclass() -> None:
   fn2 = config2.make()
   result2: float = fn2(data=test_data)
   # sum * multiplier: 6.0 * 3.0 = 18.0, offset=20.0: 18.0 + 20.0 = 38.0
-  assert result2 == 38.0
+  assert result2 == pytest.approx(38.0)
 
 
 def test_class_nesting_function() -> None:
@@ -588,7 +589,7 @@ def test_class_nesting_function() -> None:
   instance = cast("ClassNestingFunction", config.make())
   result: float = instance.process(test_data)
   # transform: 6.0 * 2.0 = 12.0, bonus=100.0: 12.0 + 100.0 = 112.0
-  assert result == 112.0
+  assert result == pytest.approx(112.0)
 
   # Test with custom configs
   config2 = ClassNestingFunction.Config(
@@ -598,7 +599,7 @@ def test_class_nesting_function() -> None:
   instance2 = cast("ClassNestingFunction", config2.make())
   result2: float = instance2.process(test_data)
   # transform: 6.0 * 5.0 = 30.0, bonus=50.0: 30.0 + 50.0 = 80.0
-  assert result2 == 80.0
+  assert result2 == pytest.approx(80.0)
 
 
 def test_class_nesting_dataclass() -> None:
@@ -608,7 +609,7 @@ def test_class_nesting_dataclass() -> None:
   instance = cast("ClassNestingDataclass", config.make())
   result: float = instance.process(10.0)
   # value * scale: 10.0 * 3.0 = 30.0, offset=10.0: 30.0 + 10.0 = 40.0
-  assert result == 40.0
+  assert result == pytest.approx(40.0)
 
   # Test with custom configs
   config2 = ClassNestingDataclass.Config(
@@ -618,7 +619,7 @@ def test_class_nesting_dataclass() -> None:
   instance2 = cast("ClassNestingDataclass", config2.make())
   result2: float = instance2.process(10.0)
   # value * scale: 10.0 * 2.0 = 20.0, offset=5.0: 20.0 + 5.0 = 25.0
-  assert result2 == 25.0
+  assert result2 == pytest.approx(25.0)
 
 
 def test_dataclass_nesting_function() -> None:
@@ -650,7 +651,7 @@ def test_dataclass_nesting_class() -> None:
   instance = cast("DataclassNestingClass", config.make())
   result: float = instance.calculate(10.0)
   # scaler: 10.0 * 1.0 = 10.0, max(10.0, 0.0) = 10.0
-  assert result == 10.0
+  assert result == pytest.approx(10.0)
 
   # Test with custom configs
   config2 = DataclassNestingClass.Config(
@@ -660,7 +661,7 @@ def test_dataclass_nesting_class() -> None:
   instance2 = cast("DataclassNestingClass", config2.make())
   result2: float = instance2.calculate(10.0)
   # scaler: 10.0 * 0.5 = 5.0, max(5.0, 7.0) = 7.0
-  assert result2 == 7.0
+  assert result2 == pytest.approx(7.0)
 
 
 def test_triple_level_nesting() -> None:
@@ -680,7 +681,7 @@ def test_triple_level_nesting() -> None:
   #   - Scaler: 6.0 * 1.0 = 6.0
   #   - extra: 6.0 + 5.0 = 11.0
   # Combined: (112.0 + 11.0) * 1.5 = 184.5
-  assert result == 184.5
+  assert result == pytest.approx(184.5)
 
   # Test with deeply nested custom configs
   config2 = top_level_orchestrator.Config(
@@ -705,7 +706,7 @@ def test_triple_level_nesting() -> None:
   #   - Scaler: 6.0 * 2.0 = 12.0
   #   - extra: 12.0 + 10.0 = 22.0
   # Combined: (68.0 + 22.0) * 2.0 = 180.0
-  assert result2 == 180.0
+  assert result2 == pytest.approx(180.0)
 
 
 def test_config_serialization() -> None:
@@ -810,7 +811,7 @@ def test_tuple_with_explicit_configs() -> None:
   assert isinstance(network.layers, tuple)
   assert len(network.layers) == 2
   assert isinstance(network.layers[0], Layer)
-  assert network(10.0) == 80.0  # 10 * 2 * 4
+  assert network(10.0) == pytest.approx(80.0)  # 10 * 2 * 4
 
 
 def test_set_with_explicit_configs() -> None:
@@ -838,7 +839,7 @@ def test_frozenset_with_explicit_configs() -> None:
 
   assert isinstance(network.layers, frozenset)
   assert len(network.layers) == 1
-  assert next(iter(network.layers)).scale == 5.0
+  assert next(iter(network.layers)).scale == pytest.approx(5.0)
 
 
 # ============= Class as Value Test =============

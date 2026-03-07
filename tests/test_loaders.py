@@ -56,7 +56,7 @@ class TestLoadJson:
 
     try:
       result = load_json(path)
-      assert result["optimizer"]["lr"] == 0.01
+      assert result["optimizer"]["lr"] == pytest.approx(0.01)
       assert result["epochs"] == 100
     finally:
       path.unlink()
@@ -102,7 +102,7 @@ epochs = 100
 
     try:
       result = load_toml(path)
-      assert result["optimizer"]["lr"] == 0.01
+      assert result["optimizer"]["lr"] == pytest.approx(0.01)
       assert result["training"]["epochs"] == 100
     finally:
       path.unlink()
@@ -154,7 +154,7 @@ training:
 
       try:
         result = load_yaml(path)
-        assert result["optimizer"]["lr"] == 0.01
+        assert result["optimizer"]["lr"] == pytest.approx(0.01)
         assert result["training"]["epochs"] == 100
       finally:
         path.unlink()

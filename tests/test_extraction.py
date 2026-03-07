@@ -98,20 +98,20 @@ def constrained_function(
 def test_annotated_syntax_basic() -> None:
   """Test that the new syntax works for basic calls."""
   result = constrained_function(10.0)
-  assert result == 70.0  # 10 * 14 * 0.5
+  assert result == pytest.approx(70.0)  # 10 * 14 * 0.5
 
 
 def test_annotated_syntax_with_params() -> None:
   """Test calling with custom parameters."""
   result = constrained_function(10.0, period=5, threshold=0.2)
-  assert result == 10.0  # 10 * 5 * 0.2
+  assert result == pytest.approx(10.0)  # 10 * 5 * 0.2
 
 
 def test_annotated_syntax_config() -> None:
   """Test that Config class works with annotated syntax."""
   config = constrained_function.Config(period=10, threshold=0.8)
   assert config.period == 10
-  assert config.threshold == 0.8
+  assert config.threshold == pytest.approx(0.8)
 
 
 def test_annotated_syntax_validation() -> None:
@@ -142,7 +142,7 @@ def test_annotated_syntax_make() -> None:
   config = constrained_function.Config(period=20, threshold=0.25)
   fn = config.make()
   result = fn(value=10.0)
-  assert result == 50.0  # 10 * 20 * 0.25
+  assert result == pytest.approx(50.0)  # 10 * 20 * 0.25
 
 
 @configurable

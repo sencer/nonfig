@@ -39,7 +39,7 @@ def test_empty_list_parameter() -> None:
 
   fn = config.make()
   result = fn(data=[1.0, 2.0])
-  assert result == 3.0
+  assert result == pytest.approx(3.0)
 
 
 def test_none_value_rejection() -> None:
@@ -72,7 +72,7 @@ def test_optional_hyper_parameter() -> None:
 
   # Should accept value
   config2 = process.Config(threshold=10.0)
-  assert config2.threshold == 10.0
+  assert config2.threshold == pytest.approx(10.0)
 
 
 def test_empty_pandas_series() -> None:
@@ -92,7 +92,7 @@ def test_empty_pandas_series() -> None:
 
   # Empty series should return 0.0
   result = fn(data=pd.Series([], dtype=float))
-  assert result == 0.0
+  assert result == pytest.approx(0.0)
 
 
 def test_whitespace_only_string_with_pattern() -> None:
