@@ -5,35 +5,34 @@
 
 **Automatic Pydantic config generation from class and function signatures.**
 
-Turn any class into a configurable, serializable, validated component—just add
-`@configurable` and mark tunable parameters with `Hyper[T]`. This simplifies the
-creation of reproducible machine learning experiments and configurable applications by
-reducing boilerplate and enforcing type safety and validation at definition time.
+`nonfig` turns any class or function into a configurable, serializable, and validated
+component. By generating Pydantic models directly from your code's signatures, it
+eliminates boilerplate while enforcing type safety and validation.
 
 ## Quick Example
 
 ```python
-from nonfig import configurable, DEFAULT, Leaf
-
+from nonfig import configurable, DEFAULT, Hyper, Ge
 
 @configurable
 class Optimizer:
-  def __init__(self, lr: float = 0.01, momentum: float = 0.9):
+  def __init__(self, lr: Hyper[float, Ge(0)] = 0.01, momentum: float = 0.9):
     self.lr = lr
     self.momentum = momentum
-
 
 @configurable
 class Model:
   def __init__(
     self,
     hidden_size: int = 128,
-    optimizer: Optimizer = DEFAULT,
-    # Use Leaf[T] to accept an instance directly (no .Config transformation)
-    data_loader: Leaf[DataLoader] = DEFAULT,  # any user-defined class
+    optimizer: Optimizer = DEFAULT,  # Automatically transforms to Optimizer.Config
   ):
     self.hidden_size = hidden_size
     self.optimizer = optimizer
+
+# Instantiate via Config
+config = Model.Config(hidden_size=256, optimizer={"lr": 0.001})
+model = config.make()  # Returns a Model instance with a real Optimizer
 ```
 
 ## Installation
@@ -46,554 +45,244 @@ pip install nonfig[yaml]
 
 ## Core Concepts
 
-### Classes & Dataclasses
+### Configuring Classes (Greedy)
 
-The `@configurable` decorator generates a `.Config` class that captures parameters:
+When you apply `@configurable` to a class, `nonfig` captures **all** parameters from
+your `__init__` method (or dataclass fields) and generates a `.Config` class.
 
 ```python
-from nonfig import configurable
-
-
 @configurable
-class Optimizer:
-  def __init__(self, lr: float = 0.01, momentum: float = 0.9):
-    self.lr = lr
-    self.momentum = momentum
-
-
-# Direct instantiation still works
-opt = Optimizer(lr=0.001)
-
-# Or use Config for validation + serialization
-config = Optimizer.Config(lr=0.001)
-opt = config.make()  # Returns Optimizer instance
-```
-
-For dataclasses, apply `@configurable` after `@dataclass` for full IDE support:
-
-```python
-from dataclasses import dataclass
-from nonfig import configurable
-
-
-@dataclass
 class Model:
-  hidden_size: int = 128
-  dropout: float = 0.1
+  def __init__(self, layers: int = 3, dropout: float = 0.1):
+    self.layers = layers
+    self.dropout = dropout
 
+# Direct instantiation still works as usual
+m = Model(layers=5)
 
-Model = configurable(Model)  # Full autocomplete!
+# Config provides validation and serialization
+config = Model.Config(layers=10)
+m = config.make()  # Returns Model instance
 ```
 
-### Functions with Hyper
+### Configuring Functions (Selective)
 
-For functions, use `Hyper[T]` to mark configurable parameters:
+For functions, `@configurable` is **selective**. It only extracts parameters marked
+with `Hyper[T]`, `DEFAULT`, or a Config object. Other parameters are treated as
+"runtime arguments" that must be passed when calling the configured function.
 
 ```python
-from nonfig import configurable, Hyper, Ge, Gt
-
+from nonfig import configurable, Hyper, Gt
 
 @configurable
 def train(
-  data: list[float],  # Runtime argument (not a hyperparameter)
+  dataset,  # Runtime argument (not in Config)
   *,
-  epochs: Hyper[int, Ge[1]] = 100,
-  lr: Hyper[float, Gt[0.0]] = 0.001,
-) -> dict:
-  return {"trained": True}
+  epochs: Hyper[int, Gt(0)] = 10,  # Hyperparameter
+  lr: Hyper[float] = 0.01          # Hyperparameter
+):
+  print(f"Training for {epochs} epochs with lr={lr}")
 
+# Create a configured version of the function
+trainer = train.Config(epochs=20).make()
 
-# Create a configured function
-trainer = train.Config(epochs=50, lr=0.01).make()
-result = trainer(data=[1.0, 2.0, 3.0])
+# Call it with runtime arguments
+trainer(my_dataset)  # Uses epochs=20, lr=0.01
 ```
 
-### Constraints & Validation
+### Nested Configuration & `DEFAULT`
 
-The `Hyper[T]` annotation attaches validation constraints:
+The power of `nonfig` lies in its ability to compose configurations. Any
+`@configurable` class used as a type hint is automatically transformed into a nested
+configuration. Use `DEFAULT` to automatically instantiate the nested config with its
+own defaults.
+
+```python
+@configurable
+class Trainer:
+  def __init__(self, optimizer: Optimizer = DEFAULT):
+    self.optimizer = optimizer
+
+# 'optimizer' can be passed as a dict, an Optimizer.Config, or an Optimizer instance
+config = Trainer.Config(optimizer={"lr": 0.0001})
+trainer = config.make()
+assert isinstance(trainer.optimizer, Optimizer)
+```
+
+### Validation & Constraints
+
+Use `Hyper[T, ...]` to attach Pydantic-style constraints to your parameters. These
+are enforced whenever a `.Config` is created.
 
 ```python
 from nonfig import configurable, Hyper, Ge, Le, Gt, MinLen, Pattern
-
 
 @configurable
 class Network:
   def __init__(
     self,
-    learning_rate: Hyper[float, Gt[0.0]],  # Required, > 0
-    dropout: Hyper[float, Ge[0.0], Le[1.0]] = 0.5,  # 0 <= x <= 1
-    name: Hyper[str, MinLen[3], Pattern[r"^[a-z]+$"]] = "net",
+    lr: Hyper[float, Gt(0)] = 0.01,
+    dropout: Hyper[float, Ge(0), Le(1)] = 0.5,
+    name: Hyper[str, MinLen(3), Pattern(r"^[A-Z]")] = "Net"
   ): ...
 ```
 
-**Available constraints:** `Ge` (>=), `Gt` (>), `Le` (≤), `Lt` (<), `MinLen`, `MaxLen`,
+**Available constraints:** `Ge` (>=), `Gt` (>), `Le` (<=), `Lt` (<), `MinLen`, `MaxLen`,
 `MultipleOf`, `Pattern`.
 
-### Inheritance & Propagation
+---
 
-`nonfig` supports automatic inheritance. If you inherit from a `@configurable` class,
-the subclass is automatically made configurable.
+## Features
 
-Furthermore, `nonfig` uses **Smart Parameter Propagation**:
+### Inheritance & Smart Propagation
 
-1. If your subclass accepts `**kwargs` in `__init__`, `nonfig` assumes you are passing
-   arguments to the base class.
-
-2. It automatically adds all configurable parameters from the Base class to the
-   Subclass's Config.
-
-3. If you explicitly define a parameter in the Subclass, it overrides the Base
-   parameter.
+`nonfig` supports automatic inheritance. If a subclass of a `@configurable` class
+includes `**kwargs` in its `__init__`, it automatically inherits all configurable
+parameters from its parents.
 
 ```python
 @configurable
 class Base:
-  def __init__(self, x: int = 1):
-    self.x = x
+  def __init__(self, x: int = 1): self.x = x
 
-
-# ✅ Sub accepts **kwargs, so it inherits 'x' from Base
 class Sub(Base):
   def __init__(self, y: int = 2, **kwargs):
     super().__init__(**kwargs)
     self.y = y
 
-
-# Config has both x and y!
+# Sub.Config now has both 'x' and 'y'
 config = Sub.Config(x=10, y=20)
-obj = config.make()
-assert obj.x == 10
-assert obj.y == 20
 ```
 
-### Cross-Field Validation
+### External Components (`wrap_external`)
 
-Define a `__config_validate__` hook for validation across multiple fields:
+Make third-party classes (e.g., from PyTorch or Scikit-learn) configurable without
+modifying their code. `wrap_external` is always **greedy**, capturing every
+parameter in the signature.
+
+```python
+from torch.optim import Adam
+from nonfig import wrap_external
+
+AdamConfig = wrap_external(Adam, overrides={"lr": Hyper[float, Gt(0)]})
+
+@configurable
+class Experiment:
+  def __init__(self, opt: AdamConfig = DEFAULT):
+    self.opt = opt
+```
+
+### Function Type Proxies (`.Type`)
+
+When a `@configurable` function is used as a nested dependency, use `.Type` for
+the type hint to enable proper configuration nesting and IDE support.
 
 ```python
 @configurable
-class Optimizer:
-  def __init__(self, name: str = "Adam", momentum: float | None = None):
-    self.name = name
-    self.momentum = momentum
+def preprocessor(data): ...
 
-  @staticmethod
-  def __config_validate__(config: "Optimizer.Config") -> "Optimizer.Config":
-    if config.name == "SGD" and config.momentum is None:
-      raise ValueError("SGD requires momentum to be set")
-    return config
-
-
-# This raises ValueError
-Optimizer.Config(name="SGD", momentum=None)
+@configurable
+class Pipeline:
+  def __init__(self, prep: preprocessor.Type = DEFAULT):
+    self.prep = prep
 ```
 
 ### Leaf Markers
 
-By default, any `@configurable` class used as a type hint is transformed into `T |
-T.Config`. If you want to force a parameter to accept only the raw instance (disabling
-nested configuration for that field), use `Leaf[T]`:
+Use `Leaf[T]` to disable "Config magic" for a specific parameter. This forces the
+field to accept **only** raw instances of the class, preventing `nonfig` from
+transforming it into a nested configuration.
 
 ```python
-from nonfig import configurable, Leaf
-
+from nonfig import Leaf
 
 @configurable
 class Processor:
   def __init__(self, model: Leaf[MyModel]):
-    # 'model' must be a MyModel instance, not MyModel.Config
+    # 'model' must be a MyModel instance.
+    # Passing a dict or MyModel.Config will raise a ValidationError.
     self.model = model
 ```
 
-### Generic Classes
+**Leaf vs. DEFAULT:**
+- **`DEFAULT`** is for **Composition**: It says "This is a sub-component; please
+  auto-configure it using its own defaults."
+- **`Leaf[T]`** is for **Inversion of Control**: It says "This is an external
+  dependency that I (the user) will provide as a pre-instantiated object."
 
-Generic classes preserve type parameters in their Config:
+You should **not** use `Leaf[T] = DEFAULT`. They represent opposite intents: `Leaf`
+blocks the configuration transformation that `DEFAULT` specifically requests.
 
-```python
-@configurable
-class Container[T]:
-  def __init__(self, count: int = 0):
-    self.count = count
+### JAX, Flax & jaxtyping
 
+`nonfig` is designed for machine learning research:
+- **`jaxtyping`**: Preserves dimension metadata and works with `@jaxtyped`.
+- **Flax**: Supports `nn.Module` classes natively.
+- **Order**: Always place `@configurable` as the **outermost** decorator.
 
-# PEP 695 style generics work
-assert hasattr(Container.Config, "__type_params__")
+---
 
-# Generic[T] style also supported
-from typing import Generic, TypeVar
+## Tooling & CLI
 
-T = TypeVar("T")
+### CLI Overrides (`run_cli`)
 
-
-@configurable
-class OldStyle(Generic[T]): ...
-```
-
-### Enums
-
-`nonfig` supports `Enum` and `StrEnum` natively through Pydantic's validation. This is
-useful for parameters with a fixed set of options.
+Easily run your experiments with command-line overrides using dot-notation.
 
 ```python
-from enum import StrEnum
-from nonfig import configurable, Hyper
-
-
-class Precision(StrEnum):
-  FLOAT32 = "float32"
-  FLOAT16 = "float16"
-
-
-@configurable
-def train(*, precision: Hyper[Precision] = Precision.FLOAT32): ...
-
-
-# CLI overrides work with enum values
-# python train.py precision=float16
-```
-
-## External Components
-
-You can make external classes or functions configurable without modifying their source
-code using `wrap_external`. This is particularly useful for library code (e.g., PyTorch,
-JAX, Scikit-learn).
-
-```python
-from torch.optim import Adam
-from nonfig import wrap_external, configurable, DEFAULT
-
-# Wrap the external class to get a Config class
-AdamConfig = wrap_external(Adam)
-
-
-@configurable
-class Trainer:
-  def __init__(self, optimizer: AdamConfig = DEFAULT):
-    self.optimizer = optimizer
-
-
-# Instantiate with overrides
-config = Trainer.Config(optimizer=AdamConfig(lr=0.01))
-trainer = config.make()  # trainer.optimizer is a real Adam instance
-```
-
-### Overriding External Parameters
-
-You can provide type overrides when wrapping external components to add `Hyper`
-constraints or specify nested configurations:
-
-```python
-AdamConfig = wrap_external(Adam, overrides={"lr": Hyper[float, Gt(0)]})
-```
-
-### Selective vs. Greedy Configuration
-
-There is a key difference in how parameters are extracted between the two methods:
-
-- **`@configurable` (Selective):** Only extracts parameters explicitly annotated with `Hyper[...]`, `DEFAULT`, or a `Config` class as a default value. Regular parameters are treated as runtime arguments that must be passed to `.make()`.
-- **`wrap_external` (Greedy):** Automatically extracts **every parameter** in the target's signature into the configuration. This is because external code is assumed to be fully delegated to the `nonfig` construction engine.
-
-To limit which parameters are configurable in an external library, wrap it in a local `@configurable` function:
-
-```python
-# Instead of wrapping Adam directly (greedy):
-# AdamConfig = wrap_external(Adam)
-
-# Wrap it locally to only expose 'lr' (selective):
-@configurable
-def my_adam(params, lr: Hyper[float] = 0.001):
-  return Adam(params, lr=lr)
-```
-
-## Function Type Proxies
-
-When using a `@configurable` function as a type hint for a nested configuration, use
-`.Type` to ensure proper validation and IDE support.
-
-```python
-@configurable
-def preprocess(data: list) -> list: ...
-
-
-@configurable
-class Pipeline:
-  def __init__(self, preprocessor: preprocess.Type = DEFAULT):
-    self.preprocessor = preprocessor
-
-
-# The Config for Pipeline will now correctly handle 'preprocessor'
-# as either the function itself or its Config.
-```
-
-## Integration with JAX, Flax & jaxtyping
-
-`nonfig` is designed to work seamlessly with the JAX ecosystem. It preserves `jaxtyping`
-annotations and supports Flax `nn.Module` configurations.
-
-### `jaxtyping` & `beartype`
-
-You can combine `@configurable` with runtime type checkers. `nonfig` correctly unwraps
-these decorators to extract hyperparameters and preserves dimension metadata in the
-generated Config.
-
-```python
-from jaxtyping import Float, Array, jaxtyped
-from beartype import beartype
-from nonfig import configurable, Hyper
-
-
-@configurable
-@jaxtyped(typechecker=beartype)
-def scale_tensor(
-  tensor: Float[Array, "batch dim"], scale: Hyper[float] = 1.0
-) -> Float[Array, "batch dim"]:
-  return tensor * scale
-
-
-# Dimension metadata "batch dim" is preserved in scale_tensor.Config
-# Runtime checks correctly catch invalid shapes passed to the configured function
-```
-
-**Important: Decorator Order** Always place `@configurable` as the **outermost**
-decorator for functions. This ensures that the configuration logic wraps the
-fully-decorated function (including type checks).
-
-```python
-# ✅ Correct: configurable is outer
-@configurable
-@jaxtyped(typechecker=beartype)
-def func(...): ...
-
-# ❌ Incorrect: jaxtyped is outer (bypasses type checking in .make())
-@jaxtyped(typechecker=beartype)
-@configurable
-def func(...): ...
-```
-
-### Flax Modules
-
-`nonfig` works with Flax modules, allowing you to easily configure layers and models:
-
-```python
-import flax.linen as nn
-
-
-@configurable
-class MyLayer(nn.Module):
-  features: Hyper[int]
-  dtype: Hyper[Any] = jnp.float32
-
-  @nn.compact
-  def __call__(self, x):
-    # features is available as self.features
-    kernel = self.param(
-      "kernel", nn.initializers.lecun_normal(), (x.shape[-1], self.features)
-    )
-    return jnp.dot(x, kernel)
-
-
-# Configure the module
-config = MyLayer.Config(features=128)
-layer = config.make()  # Returns a valid MyLayer instance
-```
-
-## CLI & Tooling
-
-### CLI Runner
-
-Run configurable targets with command-line overrides:
-
-```python
-from nonfig import configurable, Hyper, run_cli
-
-
-@configurable
-def train(*, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01) -> dict:
-  return {"epochs": epochs, "lr": lr}
-
+from nonfig import run_cli
 
 if __name__ == "__main__":
-  result = run_cli(train)  # Parse sys.argv
-  print(result)
+  # python train.py model.layers=5 optimizer.lr=0.001
+  result = run_cli(train)
 ```
 
-```bash
-python train.py epochs=100 lr=0.001 optimizer.momentum=0.9
-```
+### IDE Support (`nonfig-stubgen`)
 
-### Config Loaders
-
-Load configs from JSON, TOML, or YAML files:
-
-```python
-from nonfig import load_json, load_toml, load_yaml
-
-# Load and instantiate
-data = load_toml("config.toml")
-config = Model.Config(**data)
-model = config.make()
-```
-
-### Stub Generation
-
-For perfect IDE support (autocomplete and type checking), you can generate `.pyi` stub
-files for your configurable components:
+Because `nonfig` generates classes dynamically, IDEs might need help with
+autocompletion. Generate `.pyi` stubs for your entire project:
 
 ```bash
 nonfig-stubgen src/
 ```
 
-This tool scans your source code for `@configurable` decorators and generates matching
-type stubs.
+### Config Loaders
 
-## Serialization
-
-Configs are Pydantic models with full serialization support:
+Support for JSON, TOML, and YAML (requires `pyyaml`):
 
 ```python
-config = Model.Config(hidden_size=256)
-
-# To dict/JSON
-config.model_dump()
-config.model_dump_json()
-
-# From dict/JSON
-Model.Config.model_validate_json(json_string)
+from nonfig import load_yaml
+config_data = load_yaml("config.yaml")
+config = Model.Config(**config_data)
 ```
 
-## Performance & Best Practices
+---
 
-### Performance
+## Performance
 
-| Pattern | Typical Latency* | Notes |
+`nonfig` is optimized for high-performance ML loops. `Config.make()` uses a cached
+factory that is 70-80% faster than a standard Pydantic `model_validate`.
+
+| Pattern | Latency | Note |
 | :--- | :--- | :--- |
-| **Raw Instantiation** | ~0.15µs | Baseline Python class |
-| **Direct Call** | ~0.09µs | Zero overhead on decorated function |
-| **`Config.make()`** | ~0.17µs | Cached factory call (Function) |
-| **`Config.make()`** | ~0.29µs | Cached factory call (Class) |
-| **Reused `make()`** | ~0.17µs | Hot path: repeatedly calling make() |
-| **Full lifecycle** | ~1.85µs | `Config(...).make()` |
+| Raw `Class()` | ~0.15µs | Baseline |
+| `Config.make()` (Class) | ~0.29µs | Reused config instance |
+| `Config(...).make()` | ~1.85µs | Full lifecycle |
 
-*Measured on Python 3.12.11, Linux x86_64, AMD EPYC 7B12, 94GB RAM.*
+**Best Practice:** Call `.make()` once outside your training loop.
 
-### High-Performance Usage
-
-Since `Config.make()` adds a small overhead (~1µs) per call, it is best practice to:
-
-1. **Configure High-Level Components:** Apply `@configurable` to top-level classes
-   (e.g., `Optimizer`, `Model`, `Pipeline`) rather than low-level utility functions
-   called in tight loops (e.g., `activation_fn`).
-
-2. **Make Once, Run Many:** Instantiate your configuration *outside* your main loop.
-
-```python
-# ✅ BEST PRACTICE: Make once at the top level
-fn = train.Config(epochs=100).make()
-
-# Then call the optimized bound function repeatedly
-for batch in data:
-  fn(batch)
-```
-
-### Use Keyword-Only Parameters
-
-Place hyperparameters after `*` to make them keyword-only to avoid argument conflicts:
-
-```python
-# ✅ Recommended
-@configurable
-def train(data, *, epochs: Hyper[int] = 10, lr: Hyper[float] = 0.01): ...
-```
-
-## Advanced Topics
-
-- **Circular dependencies** in nested configs are detected at decoration time.
-
-- **Cycle detection** in `recursive_make` prevents infinite loops at runtime.
-
-- **Reserved names**: Descriptive errors when clashing with Pydantic or nonfig
-  internals.
-
-- **Thread safety**: Concurrent config creation is fully supported.
-
-## Design Decisions
-
-### Immutable Hyperparameters
-
-When using `Config.make()` on a function, the returned callable (a `BoundFunction`) has
-its hyperparameters "baked in". By design, you cannot override them by passing keyword
-arguments during the call. This ensures that the configured function behaves predictably
-according to its configuration. Passing an override at call-time will raise a
-`TypeError` (multiple values for keyword argument).
-
-```python
-# Create function with baked-in params
-fn = train.Config(epochs=50).make()
-
-# ❌ This fails by design:
-fn(data, epochs=100)
-
-# ✅ Instead, create a new config for different settings:
-fn = train.Config(epochs=100).make()
-fn(data)
-```
-
-## API Reference
-
-### Decorators & Types
-
-| Export | Description |
-| :--- | :--- |
-| `configurable` | Decorator to make classes/functions configurable |
-| `Hyper[T, ...]` | Mark a parameter as a hyperparameter with constraints |
-| `Leaf[T]` | Mark a parameter as a leaf (no nested config transformation) |
-| `DEFAULT` | Sentinel for nested configs with default values |
-| `MakeableModel` | Base class for generated Config classes |
-| `BoundFunction` | Wrapper for functions with bound hyperparameters |
-| `ConfigValidationError` | Exception with readable error paths |
-
-### Constraints
-
-| Export | Description |
-| :--- | :--- |
-| `Ge[n]` | Greater than or equal |
-| `Gt[n]` | Greater than |
-| `Le[n]` | Less than or equal |
-| `Lt[n]` | Less than |
-| `MinLen[n]` | Minimum length |
-| `MaxLen[n]` | Maximum length |
-| `MultipleOf[n]` | Must be multiple of |
-| `Pattern[r"..."]` | Regex pattern match |
-
-### Utilities
-
-| Export | Description |
-| :--- | :--- |
-| `run_cli(target, args)` | Run target with CLI overrides |
-| `wrap_external(target)` | Wrap external class/function for configuration |
-| `load_json(path)` | Load dict from JSON file |
-| `load_toml(path)` | Load dict from TOML file |
-| `load_yaml(path)` | Load dict from YAML file (requires `pyyaml`) |
-| `nonfig-stubgen <path>` | CLI tool to generate .pyi stubs for IDE support |
+---
 
 ## Comparison
 
 | Feature | nonfig | gin-config | hydra | tyro |
 | :--- | :--- | :--- | :--- | :--- |
-| **Philosophy** | Config from code | Dependency injection | YAML-first | CLI from types |
-| **Error Detection** | Decoration + Runtime | Runtime only | Runtime | CLI parse time |
-| **Type Checking** | Full (.pyi stubs) | None | Partial | Full |
-| **Boilerplate** | Minimal | Minimal | Moderate | Minimal |
-| **Serialization** | Pydantic native | Custom | YAML | YAML/JSON |
+| **Philosophy** | Code-first | DI | YAML-first | CLI-first |
+| **Validation** | Pydantic | None | Runtime | Parse-time |
+| **Nesting** | Automatic | Manual | Manual | Automatic |
+| **IDE Support** | Stubs (.pyi) | None | Partial | Full |
 
-## Contributing
-
-Contributions welcome! Please open an issue or pull request.
+---
 
 ## License
 
 MIT License
-
-* * *
-
-**nonfig** — Configuration should be effortless.
