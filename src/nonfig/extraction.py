@@ -37,7 +37,12 @@ from pydantic import Field
 from pydantic.fields import FieldInfo
 
 from nonfig.constraints import PatternConstraint, validate_constraint_conflicts
-from nonfig.models import DefaultSentinel, HyperMarker, LeafMarker, MakeableModel
+from nonfig.models import (
+  DefaultSentinel,
+  HyperMarker,
+  LeafMarker,
+  MakeableModel,
+)
 
 __all__ = [
   "extract_class_params",
@@ -95,41 +100,65 @@ def has_hyper_marker(type_ann: Any) -> bool:
   return False
 
 
-def unwrap_hyper(type_ann: Any) -> tuple[Any, tuple[Any, ...], bool]:
+def unwrap_hyper(
+  type_ann: Any,
+) -> tuple[Any, tuple[Any, ...], bool, dict[str, Any]]:
   """
   Unwrap a Hyper annotation to get the inner type and constraints.
 
   Returns:
-    Tuple of (inner_type, constraints_tuple, is_leaf)
+    Tuple of (inner_type, constraints_tuple, is_leaf, overrides)
   """
+  overrides: dict[str, Any] = {}
+
   if get_origin(type_ann) is Annotated:
     args = get_args(type_ann)
     inner_type = args[0]
     metadata = args[1:]
 
-    # Check for LeafMarker at this level
-    is_leaf = any(
-      isinstance(m, type) and issubclass(m, LeafMarker) for m in metadata
-    ) or any(isinstance(m, LeafMarker) for m in metadata)
+    # Check for LeafMarker and overrides at this level
+    is_leaf = False
+    for m in metadata:
+      if (isinstance(m, type) and issubclass(m, LeafMarker)) or isinstance(
+        m, LeafMarker
+      ):
+        is_leaf = True
+      elif isinstance(m, slice):
+        # Slice hack: "window": 100 -> overrides['window'] = 100
+        # In Python, "a": 100 in Annotated becomes slice("a", 100, None)
+        overrides[m.start] = m.stop
+      elif isinstance(m, dict):
+        # Direct dictionary injection: Overrides[T, {"window": 100}]
+        overrides.update(m)
 
-    # Filter out HyperMarker and LeafMarker from constraints
+    # Filter out markers from constraints
     constraints = tuple(
       m
       for m in metadata
       if not (isinstance(m, type) and issubclass(m, (HyperMarker, LeafMarker)))
-      and not isinstance(m, LeafMarker)
+      and not isinstance(m, (LeafMarker, slice, dict))
     )
 
     # Recursively unwrap if inner is also Annotated
     if get_origin(inner_type) is Annotated:
-      inner_inner, inner_constraints, inner_leaf = unwrap_hyper(inner_type)
+      inner_inner, inner_constraints, inner_leaf, inner_overrides = unwrap_hyper(
+        inner_type
+      )
       return cast(
-        "tuple[Any, tuple[Any, ...], bool]",
-        (inner_inner, constraints + inner_constraints, is_leaf or inner_leaf),
+        "tuple[Any, tuple[Any, ...], bool, dict[str, Any]]",
+        (
+          inner_inner,
+          constraints + inner_constraints,
+          is_leaf or inner_leaf,
+          {**inner_overrides, **overrides},
+        ),
       )
 
-    return cast("tuple[Any, tuple[Any, ...], bool]", (inner_type, constraints, is_leaf))
-  return type_ann, (), False
+    return cast(
+      "tuple[Any, tuple[Any, ...], bool, dict[str, Any]]",
+      (inner_type, constraints, is_leaf, overrides),
+    )
+  return type_ann, (), False, {}
 
 
 def extract_constraints(
@@ -360,6 +389,10 @@ def _get_config_class_for_type(cls: type) -> type[MakeableModel[Any]] | None:
 
 def _get_config_class(value: Any) -> type[MakeableModel[Any]] | None:
   """Get the Config class for a field type or default value, if available."""
+  # Handle Annotated
+  if get_origin(value) is Annotated:
+    return _get_config_class(get_args(value)[0])
+
   # Optimization: early return for common primitive types
   if value is None:
     return None
@@ -388,12 +421,14 @@ def _get_config_class(value: Any) -> type[MakeableModel[Any]] | None:
 def _instantiate_default_config(
   config_cls: type[MakeableModel[Any]],
   param_name: str,
+  overrides: dict[str, Any] | None = None,
 ) -> MakeableModel[Any]:
   """Instantiate a default config, checking for circular dependencies.
 
   Args:
     config_cls: The Config class to instantiate
     param_name: Name of the parameter (for error messages)
+    overrides: Optional dictionary of overrides to apply to the default config
 
   Returns:
     An instance of the config class with default values
@@ -406,7 +441,7 @@ def _instantiate_default_config(
 
   with ConfigCreationContext(config_name, _config_creation_stack, param_name):
     try:
-      instance = config_cls()
+      instance = config_cls(**(overrides or {}))
       # Verify the instance has a callable make method
       if not hasattr(instance, "make") or not callable(instance.make):
         raise TypeError(
@@ -422,7 +457,7 @@ def _instantiate_default_config(
       ) from e
 
 
-def create_field_info(
+def create_field_info(  # noqa: PLR0913
   param_name: str,
   field_type: Any,
   default_value: Any,
@@ -430,6 +465,7 @@ def create_field_info(
   func_name: str | None = None,
   *,
   is_leaf: bool = False,
+  overrides: dict[str, Any] | None = None,
 ) -> tuple[Any, FieldInfo]:
   """Create a Pydantic FieldInfo from extracted parameter information.
 
@@ -440,6 +476,7 @@ def create_field_info(
     constraints: Extracted constraints (Ge, Le, etc).
     func_name: Optional name of the function for error reporting.
     is_leaf: If True, force the field to be a leaf (skip transformation).
+    overrides: Optional dictionary of overrides to apply to the default config.
   """
   # Check for existing FieldInfo in constraints (e.g., Hyper[int, Field(description=...)])
   existing_field_info = next(
@@ -479,7 +516,9 @@ def create_field_info(
     # DEFAULT sentinel - instantiate the type's Config if available
     config_cls = _get_config_class(field_type)
     if config_cls is not None:
-      default_config = _instantiate_default_config(config_cls, param_name)
+      default_config = _instantiate_default_config(
+        config_cls, param_name, overrides=overrides
+      )
       return (transformed_type, Field(default=default_config, **constraint_kwargs))
 
     # Handle container types with DEFAULT: use empty container
@@ -546,12 +585,23 @@ def get_type_hints_safe(obj: Any) -> dict[str, Any]:
       if module is not None:
         globalns = vars(module)
 
-    # Add Hyper and Leaf to namespace if needed
-    ns = globalns or {}
-    if "Hyper" not in ns or "Leaf" not in ns:
-      from nonfig.typedefs import Hyper, Leaf
+    # Add Hyper, Leaf, and Overrides to namespace if needed for string resolution.
+    # We only add them if the name is not already present to avoid collisions
+    # (e.g. if the user has a class named 'Leaf').
+    ns = dict(globalns) if globalns is not None else {}
+    if "Hyper" not in ns or "Leaf" not in ns or "Overrides" not in ns:
+      from nonfig.typedefs import (
+        Hyper as NCHyper,
+        Leaf as NCLeaf,
+        Overrides as NCOverrides,
+      )
 
-      ns = {**ns, "Hyper": Hyper, "Leaf": Leaf}
+      if "Hyper" not in ns:
+        ns["Hyper"] = NCHyper
+      if "Leaf" not in ns:
+        ns["Leaf"] = NCLeaf
+      if "Overrides" not in ns:
+        ns["Overrides"] = NCOverrides
 
     # Use base_obj for get_type_hints to get original annotations
     return get_type_hints(base_obj, globalns=ns, include_extras=True)
@@ -585,7 +635,7 @@ def _extract_dataclass_params(
       continue
 
     field_type = hints.get(field.name, field.type)
-    inner_type, constraints, is_leaf = unwrap_hyper(field_type)
+    inner_type, constraints, is_leaf, overrides = unwrap_hyper(field_type)
 
     # Determine default value
     if field.default is not dataclasses.MISSING:
@@ -597,7 +647,13 @@ def _extract_dataclass_params(
       default = inspect.Parameter.empty
 
     params[field.name] = create_field_info(
-      field.name, inner_type, default, constraints, class_name, is_leaf=is_leaf
+      field.name,
+      inner_type,
+      default,
+      constraints,
+      class_name,
+      is_leaf=is_leaf,
+      overrides=overrides,
     )
 
   return params
@@ -633,11 +689,17 @@ def _extract_init_params(
     if field_type is inspect.Parameter.empty:
       field_type = Any
 
-    inner_type, constraints, is_leaf = unwrap_hyper(field_type)
+    inner_type, constraints, is_leaf, overrides = unwrap_hyper(field_type)
     default = param.default
 
     params[name] = create_field_info(
-      name, inner_type, default, constraints, class_name, is_leaf=is_leaf
+      name,
+      inner_type,
+      default,
+      constraints,
+      class_name,
+      is_leaf=is_leaf,
+      overrides=overrides,
     )
 
   # Smart Parameter Propagation: If **kwargs is present, inherit params from base Configs
@@ -721,11 +783,17 @@ def extract_function_hyper_params(
     if not is_hyper:
       continue
 
-    inner_type, constraints, is_leaf = unwrap_hyper(field_type)
+    inner_type, constraints, is_leaf, overrides = unwrap_hyper(field_type)
     default = param.default
 
     params[name] = create_field_info(
-      name, inner_type, default, constraints, func_name, is_leaf=is_leaf
+      name,
+      inner_type,
+      default,
+      constraints,
+      func_name,
+      is_leaf=is_leaf,
+      overrides=overrides,
     )
 
   return params

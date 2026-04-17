@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import OrderedDict, deque
 from collections.abc import Mapping, Sequence
-from typing import Any, ClassVar
+from typing import Any
 
 from nonfig import DEFAULT, Hyper, MakeableModel, configurable
 from nonfig.models import recursive_make
@@ -12,24 +12,18 @@ from nonfig.models import recursive_make
 
 @configurable
 class Leaf:
-  Config: ClassVar[type[MakeableModel[object]]]
-
   def __init__(self, value: int = 1):
     self.value = value
 
 
 @configurable
 class Node:
-  Config: ClassVar[type[MakeableModel[object]]]
-
   def __init__(self, leaf: Hyper[Leaf] = DEFAULT):
     self.leaf = leaf
 
 
 @configurable
 class Tree:
-  Config: ClassVar[type[MakeableModel[object]]]
-
   def __init__(self, node: Hyper[Node] = DEFAULT):
     self.node = node
 
@@ -58,8 +52,6 @@ def test_recursive_make_overrides() -> None:
 
 @configurable
 class Item:
-  Config: ClassVar[type[MakeableModel[object]]]
-
   def __init__(self, value: int = 1):
     self.value = value
 

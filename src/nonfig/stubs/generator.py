@@ -60,6 +60,7 @@ def _generate_params_doc_section(
   params: list[HyperParam],
   _indent: int = 4,
   aliases: set[str] | None = None,
+  configurable_names: set[str] | None = None,
 ) -> str | None:
   """Generate documentation for parameters."""
   if aliases is None:
@@ -70,7 +71,10 @@ def _generate_params_doc_section(
     lines.append("Configuration:")
     for param in params:
       config_type = _transform_to_config_type(
-        param.type_annotation, aliases, is_leaf=param.is_leaf
+        param.type_annotation,
+        aliases,
+        is_leaf=param.is_leaf,
+        configurable_names=configurable_names,
       )
       lines.append(f"    {param.name} ({config_type})")
 
@@ -297,7 +301,18 @@ def _is_primitive_or_container(type_str: str) -> bool:
   return any(type_lower.startswith(prefix.lower()) for prefix in _CONTAINER_PREFIXES)
 
 
-def _should_transform_to_config(type_str: str, aliases: set[str]) -> bool:
+def _is_pascal_case(s: str) -> bool:
+  """Check if a string is PascalCase (e.g. MyClass, not my_func or CONSTANT)."""
+  # Handle nested names like A.B.C
+  parts = s.split(".")
+  last_part = parts[-1]
+  # PascalCase: starts with uppercase, and is not ALL_UPPER (which usually means constant)
+  return bool(last_part and last_part[0].isupper() and not last_part.isupper())
+
+
+def _should_transform_to_config(
+  type_str: str, aliases: set[str], configurable_names: set[str] | None = None
+) -> bool:
   """Determine if a Hyper type should be transformed to .Config.
 
   Non-primitive types in Hyper[] must be configurable classes, so they
@@ -306,29 +321,44 @@ def _should_transform_to_config(type_str: str, aliases: set[str]) -> bool:
 
   if type_str in aliases:
     return False
-  return not _is_primitive_or_container(type_str)
+  if _is_primitive_or_container(type_str):
+    return False
+  if configurable_names and type_str in configurable_names:
+    return True
+  return _is_pascal_case(type_str)
 
 
-def _transform_ast_node(node: ast.AST, aliases: set[str]) -> ast.AST:
+def _is_likely_type_ref(s: str, configurable_names: set[str] | None = None) -> bool:
+  """Check if a string literal is likely a type reference (forward ref)."""
+  if _is_pascal_case(s) or "[" in s or "|" in s or s.endswith(".Type"):
+    return True
+  return bool(configurable_names and s in configurable_names)
+
+
+def _transform_ast_node(
+  node: ast.AST, aliases: set[str], configurable_names: set[str] | None = None
+) -> ast.AST:
   """Recursively transform an AST type node."""
   # Handle A | B (Python 3.10+ unions)
   if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
     return ast.BinOp(
-      left=_transform_ast_node(node.left, aliases),  # pyright: ignore[reportArgumentType]
+      left=_transform_ast_node(node.left, aliases, configurable_names),
       op=ast.BitOr(),
-      right=_transform_ast_node(node.right, aliases),  # pyright: ignore[reportArgumentType]
+      right=_transform_ast_node(node.right, aliases, configurable_names),
     )
 
   # Handle containers: list[T], Union[T1, T2], etc.
   if isinstance(node, ast.Subscript):
     # Transform the slice (the part inside [])
     if isinstance(node.slice, ast.Tuple):
-      new_elts = [_transform_ast_node(elt, aliases) for elt in node.slice.elts]
+      new_elts = [
+        _transform_ast_node(elt, aliases, configurable_names) for elt in node.slice.elts
+      ]
       new_slice: ast.AST = ast.Tuple(
         elts=cast("list[ast.expr]", new_elts), ctx=ast.Load()
       )
     else:
-      new_slice = _transform_ast_node(node.slice, aliases)
+      new_slice = _transform_ast_node(node.slice, aliases, configurable_names)
 
     return ast.Subscript(
       value=node.value,
@@ -336,20 +366,70 @@ def _transform_ast_node(node: ast.AST, aliases: set[str]) -> ast.AST:
       ctx=ast.Load(),
     )
 
+  # Handle Dict literals (common in Overrides)
+  if isinstance(node, ast.Dict):
+    return ast.Dict(
+      keys=[
+        _transform_ast_node(k, aliases, configurable_names) if k else None
+        for k in node.keys  # pyright: ignore
+      ],
+      values=[
+        _transform_ast_node(v, aliases, configurable_names)
+        for v in node.values  # pyright: ignore
+      ],
+    )
+
+  # Handle List literals
+  if isinstance(node, ast.List):
+    return ast.List(
+      elts=[
+        _transform_ast_node(e, aliases, configurable_names)
+        for e in node.elts  # pyright: ignore
+      ],
+      ctx=node.ctx,
+    )
+
+  # Handle Tuple literals
+  if isinstance(node, ast.Tuple):
+    return ast.Tuple(
+      elts=[
+        _transform_ast_node(e, aliases, configurable_names)
+        for e in node.elts  # pyright: ignore
+      ],
+      ctx=node.ctx,
+    )
+
   # Leaf type (Name or Attribute)
   if isinstance(node, (ast.Name, ast.Attribute)):
     type_str = ast.unparse(node)
-    if _should_transform_to_config(type_str, aliases):
+
+    # Strip .Type suffix before transforming to .Config
+    if type_str.endswith(".Type"):
+      type_str = type_str.removesuffix(".Type")
+      import contextlib
+
+      with contextlib.suppress(Exception):
+        # Re-parse to get the base name without .Type
+        # This handles cases like 'foo.bar.Type' -> 'foo.bar'
+        new_node = ast.parse(type_str, mode="eval").body
+        if isinstance(new_node, (ast.Name, ast.Attribute)):
+          node = new_node
+
+    if _should_transform_to_config(type_str, aliases, configurable_names):
       # Transform to T.Config | T.ConfigDict
       config_attr = ast.Attribute(value=node, attr="Config", ctx=ast.Load())
       dict_attr = ast.Attribute(value=node, attr="ConfigDict", ctx=ast.Load())
       return ast.BinOp(left=config_attr, op=ast.BitOr(), right=dict_attr)
 
   # Handle forward references (string literals) inside containers
-  if isinstance(node, ast.Constant) and isinstance(node.value, str):
+  if (
+    isinstance(node, ast.Constant)
+    and isinstance(node.value, str)
+    and _is_likely_type_ref(node.value, configurable_names)
+  ):
     try:
       sub_node = ast.parse(node.value, mode="eval").body
-      transformed_sub = _transform_ast_node(sub_node, aliases)
+      transformed_sub = _transform_ast_node(sub_node, aliases, configurable_names)
       # Wrap back in a Constant with the unparsed (transformed) string
       return ast.Constant(value=ast.unparse(transformed_sub))
     except SyntaxError:
@@ -359,7 +439,10 @@ def _transform_ast_node(node: ast.AST, aliases: set[str]) -> ast.AST:
 
 
 def _transform_to_config_type(
-  type_str: str, aliases: set[str] | None = None, is_leaf: bool = False
+  type_str: str,
+  aliases: set[str] | None = None,
+  is_leaf: bool = False,
+  configurable_names: set[str] | None = None,
 ) -> str:
   """Transform a type to its .Config variant.
 
@@ -389,11 +472,11 @@ def _transform_to_config_type(
   try:
     # mode='eval' is for single expressions
     node = ast.parse(type_str, mode="eval").body
-    transformed = _transform_ast_node(node, aliases)
+    transformed = _transform_ast_node(node, aliases, configurable_names)
     return ast.unparse(transformed)
   except Exception:  # noqa: BLE001
     # Fallback to simple logic if parsing fails
-    if _should_transform_to_config(type_str, aliases):
+    if _should_transform_to_config(type_str, aliases, configurable_names):
       return f"{type_str}.Config | {type_str}.ConfigDict"
     return type_str
 
@@ -403,6 +486,7 @@ def _generate_config_dict(
   indent: int = 4,
   name: str = "ConfigDict",
   aliases: set[str] | None = None,
+  configurable_names: set[str] | None = None,
 ) -> str:
   """Generate the ConfigDict TypedDict."""
   if aliases is None:
@@ -410,10 +494,13 @@ def _generate_config_dict(
 
   lines: list[str] = []
   prefix = " " * indent
-  lines.append(f"{prefix}class {name}(TypedDict, total=False):")
+  noqa = "  # noqa: N801" if name.startswith("_") else ""
+  lines.append(f"{prefix}class {name}(TypedDict, total=False):{noqa}")
 
   # Generate docstring for ConfigDict
-  doc_section = _generate_params_doc_section(info.params, aliases=aliases)
+  doc_section = _generate_params_doc_section(
+    info.params, aliases=aliases, configurable_names=configurable_names
+  )
   if doc_section:
     lines.append(
       _format_docstring(
@@ -428,14 +515,19 @@ def _generate_config_dict(
   else:
     for param in info.params:
       config_type = _transform_to_config_type(
-        param.type_annotation, aliases, is_leaf=param.is_leaf
+        param.type_annotation,
+        aliases,
+        is_leaf=param.is_leaf,
+        configurable_names=configurable_names,
       )
       lines.append(f"{prefix}    {param.name}: {config_type}")
 
   return "\n".join(lines)
 
 
-def _generate_config_class(info: ConfigurableInfo, aliases: set[str]) -> str:
+def _generate_config_class(
+  info: ConfigurableInfo, aliases: set[str], configurable_names: set[str]
+) -> str:
   """Generate the Config class stub."""
   lines: list[str] = []
 
@@ -452,7 +544,9 @@ def _generate_config_class(info: ConfigurableInfo, aliases: set[str]) -> str:
   lines.append(f"    class Config(_NCMakeableModel[{make_return}]):")
 
   # Generate docstring for Config class: params + original docstring
-  doc_section = _generate_params_doc_section(info.params, aliases=aliases)
+  doc_section = _generate_params_doc_section(
+    info.params, aliases=aliases, configurable_names=configurable_names
+  )
 
   # Prepare the description part: "Configuration class for X.\n\nOriginal docstring"
   description = f"Configuration class for {info.name}."
@@ -472,7 +566,10 @@ def _generate_config_class(info: ConfigurableInfo, aliases: set[str]) -> str:
     # Field declarations - transform non-primitive types to .Config
     for param in info.params:
       config_type = _transform_to_config_type(
-        param.type_annotation, aliases, is_leaf=param.is_leaf
+        param.type_annotation,
+        aliases,
+        is_leaf=param.is_leaf,
+        configurable_names=configurable_names,
       )
       lines.append(f"        {param.name}: {config_type}")
 
@@ -480,7 +577,10 @@ def _generate_config_class(info: ConfigurableInfo, aliases: set[str]) -> str:
     init_params: list[str] = []
     for param in info.params:
       config_type = _transform_to_config_type(
-        param.type_annotation, aliases, is_leaf=param.is_leaf
+        param.type_annotation,
+        aliases,
+        is_leaf=param.is_leaf,
+        configurable_names=configurable_names,
       )
       default_str = _format_default(param.default_value)
       init_params.append(f"{param.name}: {config_type}{default_str}")
@@ -503,17 +603,23 @@ def _generate_config_class(info: ConfigurableInfo, aliases: set[str]) -> str:
   return "\n".join(lines)
 
 
-def _generate_class_stub(info: ConfigurableInfo, aliases: set[str]) -> str:
+def _generate_class_stub(
+  info: ConfigurableInfo, aliases: set[str], configurable_names: set[str]
+) -> str:
   """Generate stub for a @configurable decorated class."""
   lines: list[str] = []
 
   lines.append(f"class {info.name}:")
 
-  doc_section = _generate_params_doc_section(info.params, aliases=aliases)
+  doc_section = _generate_params_doc_section(
+    info.params, aliases=aliases, configurable_names=configurable_names
+  )
   extra = [doc_section] if doc_section else None
   lines.append(_format_docstring(info.docstring, extra, indent=4))
-  lines.append(_generate_config_dict(info, aliases=aliases))
-  lines.append(_generate_config_class(info, aliases))
+  lines.append(
+    _generate_config_dict(info, aliases=aliases, configurable_names=configurable_names)
+  )
+  lines.append(_generate_config_class(info, aliases, configurable_names))
 
   # Instance attribute declarations (for dataclasses)
   if info.params:
@@ -534,12 +640,14 @@ def _generate_class_stub(info: ConfigurableInfo, aliases: set[str]) -> str:
   return "\n".join(lines)
 
 
-def _generate_function_stub(info: ConfigurableInfo, aliases: set[str]) -> str:
+def _generate_function_stub(
+  info: ConfigurableInfo, aliases: set[str], configurable_names: set[str]
+) -> str:
   """Generate stub for a @configurable decorated function."""
   lines: list[str] = []
 
   # Generate the BoundFunction Protocol
-  lines.append(f"class _{info.name}_Bound(Protocol):")
+  lines.append(f"class _{info.name}_Bound(Protocol):  # noqa: N801")
   lines.append('    """Bound function with hyperparameters as attributes."""')
 
   for param in info.params:
@@ -560,14 +668,25 @@ def _generate_function_stub(info: ConfigurableInfo, aliases: set[str]) -> str:
   # Generate the ConfigDict
   config_dict_name = f"_{info.name}_ConfigDict"
   lines.append(
-    _generate_config_dict(info, indent=0, name=config_dict_name, aliases=aliases)
+    _generate_config_dict(
+      info,
+      indent=0,
+      name=config_dict_name,
+      aliases=aliases,
+      configurable_names=configurable_names,
+    )
   )
+
   lines.append("")
 
   # Generate Config class
-  lines.append(f"class _{info.name}_Config(_NCMakeableModel[_{info.name}_Bound]):")
+  lines.append(
+    f"class _{info.name}_Config(_NCMakeableModel[_{info.name}_Bound]):  # noqa: N801"
+  )
 
-  doc_section = _generate_params_doc_section(info.params, aliases=aliases)
+  doc_section = _generate_params_doc_section(
+    info.params, aliases=aliases, configurable_names=configurable_names
+  )
   description = f"Configuration class for {info.name}."
   if info.docstring:
     description += f"\n\n{info.docstring}"
@@ -581,7 +700,10 @@ def _generate_function_stub(info: ConfigurableInfo, aliases: set[str]) -> str:
     for param in info.params:
       # Config fields
       config_type = _transform_to_config_type(
-        param.type_annotation, aliases, is_leaf=param.is_leaf
+        param.type_annotation,
+        aliases,
+        is_leaf=param.is_leaf,
+        configurable_names=configurable_names,
       )
       lines.append(f"    {param.name}: {config_type}")
 
@@ -589,7 +711,10 @@ def _generate_function_stub(info: ConfigurableInfo, aliases: set[str]) -> str:
     init_params: list[str] = []
     for param in info.params:
       config_type = _transform_to_config_type(
-        param.type_annotation, aliases, is_leaf=param.is_leaf
+        param.type_annotation,
+        aliases,
+        is_leaf=param.is_leaf,
+        configurable_names=configurable_names,
       )
       default_str = _format_default(param.default_value)
       init_params.append(f"{param.name}: {config_type}{default_str}")
@@ -611,7 +736,7 @@ def _generate_function_stub(info: ConfigurableInfo, aliases: set[str]) -> str:
 
   # Generate the function wrapper as a CLASS matching the runtime behavior
   # of type[ConfigurableFunc] but with specific attributes.
-  lines.append(f"class {info.name}:")
+  lines.append(f"class {info.name}:  # noqa: N801")
   lines.append(f"    Type = _{info.name}_Bound")
   lines.append(f"    Config = _{info.name}_Config")
   lines.append(f"    ConfigDict = {config_dict_name}")
@@ -866,7 +991,7 @@ def _extract_public_items(
 
 
 def _generate_configurable_stubs(
-  infos: list[ConfigurableInfo], aliases: set[str]
+  infos: list[ConfigurableInfo], aliases: set[str], configurable_names: set[str]
 ) -> list[str]:
 
   stubs: list[str] = []
@@ -881,9 +1006,9 @@ def _generate_configurable_stubs(
       ]
       stubs.append("\n".join(lines))
     elif info.is_class:
-      stubs.append(_generate_class_stub(info, aliases))
+      stubs.append(_generate_class_stub(info, aliases, configurable_names))
     else:
-      stubs.append(_generate_function_stub(info, aliases))
+      stubs.append(_generate_function_stub(info, aliases, configurable_names))
   return stubs
 
 
@@ -1017,12 +1142,20 @@ def _build_import_section(
   # Use alias to avoid collision with user's own MakeableModel
   lines.append("from nonfig import MakeableModel as _NCMakeableModel")
 
-  nonfig_imports: list[str] = []
-  if has_default:
-    nonfig_imports.append("DEFAULT")
+  # Detect common nonfig exports by usage
+  nonfig_exports_to_check = {"DEFAULT", "Overrides", "Hyper", "Leaf"}
+  used_nonfig_exports: set[str] = set()
 
-  if nonfig_imports:
-    lines.append(f"from nonfig import {', '.join(nonfig_imports)}")
+  for name in nonfig_exports_to_check:
+    if name in used_names:
+      used_nonfig_exports.add(name)
+
+  if has_default and "DEFAULT" not in used_nonfig_exports:
+    # Fallback check for DEFAULT since it's used in default_str logic
+    used_nonfig_exports.add("DEFAULT")
+
+  if used_nonfig_exports:
+    lines.append(f"from nonfig import {', '.join(sorted(used_nonfig_exports))}")
 
   # Other filtered imports
   if filtered_imports:
@@ -1044,14 +1177,16 @@ def generate_stub_content(
   source = source_path.read_text(encoding="utf-8")
   tree = ast.parse(source)
 
+  configurable_names = {info.name for info in infos}
+
   public_classes, public_funcs, public_constants = _extract_public_items(
-    tree, {info.name for info in infos}, aliases
+    tree, configurable_names, aliases
   )
 
   if not infos and not public_classes and not public_funcs and not public_constants:
     return ""
 
-  configurable_stubs = _generate_configurable_stubs(infos, aliases)
+  configurable_stubs = _generate_configurable_stubs(infos, aliases, configurable_names)
 
   # Combine all stubs to collect used names
   all_stubs = "\n\n".join(

@@ -13,6 +13,7 @@ __all__ = [
   "ConfigurableFunc",
   "Hyper",
   "Leaf",
+  "Overrides",
 ]
 
 
@@ -41,6 +42,34 @@ else:
 
     def __class_getitem__(cls, t: Any) -> Any:
       return Annotated[t, cls]
+
+
+if TYPE_CHECKING:
+  # At type-checking time, Overrides[T, Args] is an alias to Annotated[T, Args]
+  # This allows the beautiful Overrides[Type, "key": value] syntax.
+  from typing import Annotated as Overrides
+else:
+
+  class Overrides:
+    """
+    Utility for overriding nested configurations in type hints.
+
+    Usage:
+      ```python
+      long: Overrides[MA.Type, "window": 100] = DEFAULT
+      ```
+    """
+
+    __slots__ = ()
+
+    def __class_getitem__(cls, args: Any) -> Any:
+      from typing import Annotated
+
+      if not isinstance(args, tuple):
+        return args
+      inner_type = args[0]
+      metadata = args[1:]
+      return Annotated[inner_type, *metadata]
 
 
 if TYPE_CHECKING:

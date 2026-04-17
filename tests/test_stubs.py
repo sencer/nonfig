@@ -150,7 +150,7 @@ def test_generate_config_class():
     call_params=[("data", "list", None)],
     return_type="list[float]",
   )
-  code = _generate_config_class(info, set())
+  code = _generate_config_class(info, set(), configurable_names=set())
   assert "class Config(_NCMakeableModel" in code
   assert "p1: int" in code
   assert "def __init__(self, *, p1: int = ...) -> None: ..." in code
@@ -163,7 +163,7 @@ def test_generate_class_stub():
     params=[HyperParam("window", "int", "10")],
     return_type="MyClass",
   )
-  code = _generate_class_stub(info, set())
+  code = _generate_class_stub(info, set(), configurable_names=set())
   assert "class MyClass:" in code
   assert "class Config(_NCMakeableModel[MyClass]):" in code
   assert "window: int" in code
@@ -177,7 +177,7 @@ def test_generate_function_stub():
     call_params=[("data", "list", None)],
     return_type="float",
   )
-  code = _generate_function_stub(info, set())
+  code = _generate_function_stub(info, set(), configurable_names=set())
   assert "class _my_func_Bound(Protocol):" in code
   assert "class _my_func_Config(_NCMakeableModel[_my_func_Bound]):" in code
   assert "class my_func:" in code
@@ -193,11 +193,12 @@ def test_generate_function_stub_properties_readonly():
     call_params=[("data", "list", None)],
     return_type="float",
   )
-  code = _generate_function_stub(info, set())
+  code = _generate_function_stub(info, set(), configurable_names=set())
 
   # Should use @property and def, not simple annotation
   assert "@property" in code
   assert "def window(self) -> int: ..." in code
+
   assert (
     "window: int"
     not in code.split("class _my_func_Bound(Protocol):")[1].split("def __call__")[0]
@@ -1327,3 +1328,44 @@ def mixed(
   finally:
     if p.exists():
       p.unlink()
+
+
+def test_generate_stub_with_overrides():
+  """Test that Overrides are correctly imported and simplified in stubs."""
+  source = dedent("""
+        from nonfig import configurable, DEFAULT, Overrides, Hyper
+
+        @configurable
+        def ma(window: Hyper[int] = 5):
+            pass
+
+        @configurable
+        class Strategy:
+            long: Overrides[ma.Type, "window": 100] = DEFAULT
+    """)
+
+  # Use a helper to generate stub content from string
+  import tempfile
+
+  from nonfig.stubs.scanner import scan_module
+
+  with tempfile.NamedTemporaryFile(
+    suffix=".py", mode="w", delete=False, encoding="utf-8"
+  ) as tmp:
+    tmp.write(source)
+    tmp_path = Path(tmp.name)
+
+  try:
+    infos, aliases = scan_module(tmp_path)
+    content = generate_stub_content(infos, tmp_path, aliases)
+
+    # 1. Check for correct simplified naming (not ma.Type.Config)
+    assert "ma.Config" in content
+    assert "ma.Type.Config" not in content
+
+    # 2. Check for dynamic nonfig imports
+    assert "from nonfig import DEFAULT, Overrides" in content
+
+  finally:
+    if tmp_path.exists():
+      tmp_path.unlink()

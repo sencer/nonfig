@@ -295,21 +295,21 @@ def _apply_wrap_overrides(
       if default is PydanticUndefined:
         default = inspect.Parameter.empty
 
-      try:
-        inner_type, constraints, is_leaf = unwrap_hyper(new_type)
-      except Exception as e:
-        raise TypeError(
-          f"Invalid type override for parameter '{name}': {new_type!r}. "
-          + "Expected a type or Hyper[T] annotation."
-        ) from e
+      inner_type, constraints, is_leaf, ext_overrides = unwrap_hyper(new_type)
 
       params[name] = create_field_info(
-        name, inner_type, default, constraints, target_name, is_leaf=is_leaf
+        name,
+        inner_type,
+        default,
+        constraints,
+        target_name,
+        is_leaf=is_leaf,
+        overrides=ext_overrides,
       )
     elif has_kwargs:
       # Add new field for **kwargs
       try:
-        inner_type, constraints, is_leaf = unwrap_hyper(new_type)
+        inner_type, constraints, is_leaf, ext_overrides = unwrap_hyper(new_type)
       except Exception as e:
         raise TypeError(
           f"Invalid type override for parameter '{name}': {new_type!r}. "
@@ -323,6 +323,7 @@ def _apply_wrap_overrides(
         constraints,
         target_name,
         is_leaf=is_leaf,
+        overrides=ext_overrides,
       )
     else:
       raise ValueError(

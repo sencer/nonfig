@@ -103,7 +103,7 @@ class TestMakeStubGeneration:
       return_type="float",
     )
 
-    stub = _generate_config_class(info, aliases=set())
+    stub = _generate_config_class(info, aliases=set(), configurable_names=set())
 
     # For functions, make() returns a Callable with the data param signature
     assert "def make(self) -> Callable[[list[float]], float]" in stub
@@ -120,7 +120,7 @@ class TestMakeStubGeneration:
       return_type="MyClass",
     )
 
-    stub = _generate_config_class(info, aliases=set())
+    stub = _generate_config_class(info, aliases=set(), configurable_names=set())
 
     # For classes, make() returns the class instance directly
     assert "def make(self) -> MyClass" in stub
@@ -142,7 +142,7 @@ class TestMakeStubGeneration:
       return_type="tuple[float, float, float]",
     )
 
-    stub = _generate_config_class(info, aliases=set())
+    stub = _generate_config_class(info, aliases=set(), configurable_names=set())
 
     # make() returns Callable with data param types
     assert (

@@ -6,7 +6,7 @@ from annotated_types import Ge as AnnotatedGe
 from pydantic import ValidationError
 import pytest
 
-from nonfig import DEFAULT, Ge, Hyper, Le, configurable
+from nonfig import DEFAULT, Ge, Hyper, Le, Overrides, configurable
 from nonfig.extraction import has_hyper_marker, unwrap_hyper
 from nonfig.models import BoundFunction
 
@@ -56,20 +56,22 @@ def test_hyper_marker_check():
 
 def test_unwrap_hyper_logic():
   # Unwrap Hyper[int, Ge[1]]
-  inner, constraints, is_leaf = unwrap_hyper(Hyper[int, Ge[1]])
+  inner, constraints, is_leaf, overrides = unwrap_hyper(Hyper[int, Ge[1]])
   assert inner is int
   assert len(constraints) == 1
   assert isinstance(constraints[0], AnnotatedGe)
   assert is_leaf is False
+  assert overrides == {}
 
   # Unwrap plain type
-  inner, constraints, is_leaf = unwrap_hyper(int)
+  inner, constraints, is_leaf, overrides = unwrap_hyper(int)
   assert inner is int
   assert len(constraints) == 0
   assert is_leaf is False
+  assert overrides == {}
 
   # Unwrap Annotated but not Hyper
-  inner, constraints, is_leaf = unwrap_hyper(Annotated[int, Ge[1]])
+  inner, constraints, is_leaf, overrides = unwrap_hyper(Annotated[int, Ge[1]])
   # Note: extraction logic currently filters out HyperMarker.
   # If using unwrap_hyper on generic Annotated, it returns inner + constraints
   # as long as they are not HyperMarker.
@@ -80,6 +82,7 @@ def test_unwrap_hyper_logic():
   # nonfig.Ge[...] produces an annotated_types.Ge instance
   assert isinstance(constraints[0], AnnotatedGe)
   assert is_leaf is False
+  assert overrides == {}
 
 
 """Test the new Hyper[T, Ge[2], Le[100]] syntax in type annotations."""
@@ -360,3 +363,88 @@ def test_implicit_hyper_extraction_for_config_subclasses():
   assert "cfg" in process.Config.model_fields
   config = process.Config(cfg=MyConfig(x=10))
   assert config.make()() == 10
+
+
+def test_overrides_runtime_behavior():
+  """Test that Overrides properly extracts correctly into Config models."""
+
+  @configurable
+  def nested(x: Hyper[int] = 1):
+    return x
+
+  @configurable
+  class Logic:
+    def __init__(self, m: Overrides[nested.Type, "x":100] = DEFAULT):  # noqa: UP037, F821
+      self.m = m
+
+  # The default value in Config should have window=100
+  config = Logic.Config()
+  assert config.m.x == 100
+
+  # Manual override still works
+  config2 = Logic.Config(m={"x": 5})
+  assert config2.m.x == 5
+  assert config2.make().m() == 5
+
+
+@configurable
+def _leaf_for_test(x: Hyper[int] = 1):
+  return x
+
+
+@configurable
+def _mid_for_test(sub: _leaf_for_test.Type = DEFAULT):
+  return sub()
+
+
+def test_overrides_nested_behavior():
+  """Test that Overrides supports deep nested dictionary overrides."""
+
+  @configurable
+  class Root:
+    def __init__(self, m: Overrides[_mid_for_test.Type, "sub" : {"x": 42}] = DEFAULT):  # noqa: UP037, F821
+      self.m = m
+
+  config = Root.Config()
+  assert config.m.sub.x == 42
+  assert config.make().m() == 42
+
+
+@configurable
+def _leaf_for_dict_test(x: Hyper[int] = 1, y: Hyper[int] = 2):
+  return x + y
+
+
+_D_FOR_TEST = {"x": 10, "y": 20}
+
+
+@configurable
+class _RootForDictTest:
+  def __init__(self, m: Overrides[_leaf_for_dict_test.Type, _D_FOR_TEST] = DEFAULT):
+    self.m = m
+
+
+def test_overrides_dict_injection():
+  """Test that Overrides supports direct dictionary injection."""
+  config = _RootForDictTest.Config()
+  assert config.m.x == 10
+  assert config.m.y == 20
+  assert config.make().m() == 30
+
+
+_D2 = {"x": 100}
+_D3 = {"y": 200}
+
+
+@configurable
+class _Root2ForDictTest:
+  def __init__(self, m: Overrides[_leaf_for_dict_test.Type, _D2, _D3] = DEFAULT):
+    self.m = m
+
+
+def test_overrides_multiple_dict_injection():
+  """Test that Overrides supports multiple direct dictionary injections."""
+  config2 = _Root2ForDictTest.Config()
+  assert config2.m.x == 100
+  assert config2.m.y == 200
+  assert config2.make().m() == 300

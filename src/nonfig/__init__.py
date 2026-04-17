@@ -11,8 +11,12 @@ from nonfig.cli.runner import run_cli
 from nonfig.constraints import Ge, Gt, Le, Lt, MaxLen, MinLen, MultipleOf, Pattern
 from nonfig.generation import configurable, wrap_external
 from nonfig.loaders import load_json, load_toml, load_yaml
-from nonfig.models import BoundFunction, ConfigValidationError, MakeableModel
-from nonfig.typedefs import DEFAULT, Hyper, Leaf
+from nonfig.models import (
+  BoundFunction,
+  ConfigValidationError,
+  MakeableModel,
+)
+from nonfig.typedefs import DEFAULT, Hyper, Leaf, Overrides
 
 # Note: Configurable is a type-only Protocol for static analysis.
 # Import it from nonfig.typedefs in TYPE_CHECKING blocks:
@@ -33,6 +37,7 @@ __all__ = [
   "MaxLen",
   "MinLen",
   "MultipleOf",
+  "Overrides",
   "Pattern",
   "__version__",
   "configurable",

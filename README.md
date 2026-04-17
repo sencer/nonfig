@@ -14,11 +14,13 @@ eliminates boilerplate while enforcing type safety and validation.
 ```python
 from nonfig import configurable, DEFAULT, Hyper, Ge
 
+
 @configurable
 class Optimizer:
   def __init__(self, lr: Hyper[float, Ge(0)] = 0.01, momentum: float = 0.9):
     self.lr = lr
     self.momentum = momentum
+
 
 @configurable
 class Model:
@@ -29,6 +31,7 @@ class Model:
   ):
     self.hidden_size = hidden_size
     self.optimizer = optimizer
+
 
 # Instantiate via Config
 config = Model.Config(hidden_size=256, optimizer={"lr": 0.001})
@@ -57,6 +60,7 @@ class Model:
     self.layers = layers
     self.dropout = dropout
 
+
 # Direct instantiation still works as usual
 m = Model(layers=5)
 
@@ -74,14 +78,16 @@ with `Hyper[T]`, `DEFAULT`, or a Config object. Other parameters are treated as
 ```python
 from nonfig import configurable, Hyper, Gt
 
+
 @configurable
 def train(
   dataset,  # Runtime argument (not in Config)
   *,
   epochs: Hyper[int, Gt(0)] = 10,  # Hyperparameter
-  lr: Hyper[float] = 0.01          # Hyperparameter
+  lr: Hyper[float] = 0.01,  # Hyperparameter
 ):
   print(f"Training for {epochs} epochs with lr={lr}")
+
 
 # Create a configured version of the function
 trainer = train.Config(epochs=20).make()
@@ -103,6 +109,7 @@ class Trainer:
   def __init__(self, optimizer: Optimizer = DEFAULT):
     self.optimizer = optimizer
 
+
 # 'optimizer' can be passed as a dict, an Optimizer.Config, or an Optimizer instance
 config = Trainer.Config(optimizer={"lr": 0.0001})
 trainer = config.make()
@@ -117,13 +124,14 @@ are enforced whenever a `.Config` is created.
 ```python
 from nonfig import configurable, Hyper, Ge, Le, Gt, MinLen, Pattern
 
+
 @configurable
 class Network:
   def __init__(
     self,
     lr: Hyper[float, Gt(0)] = 0.01,
     dropout: Hyper[float, Ge(0), Le(1)] = 0.5,
-    name: Hyper[str, MinLen(3), Pattern(r"^[A-Z]")] = "Net"
+    name: Hyper[str, MinLen(3), Pattern(r"^[A-Z]")] = "Net",
   ): ...
 ```
 
@@ -143,12 +151,15 @@ parameters from its parents.
 ```python
 @configurable
 class Base:
-  def __init__(self, x: int = 1): self.x = x
+  def __init__(self, x: int = 1):
+    self.x = x
+
 
 class Sub(Base):
   def __init__(self, y: int = 2, **kwargs):
     super().__init__(**kwargs)
     self.y = y
+
 
 # Sub.Config now has both 'x' and 'y'
 config = Sub.Config(x=10, y=20)
@@ -166,6 +177,7 @@ from nonfig import wrap_external
 
 AdamConfig = wrap_external(Adam, overrides={"lr": Hyper[float, Gt(0)]})
 
+
 @configurable
 class Experiment:
   def __init__(self, opt: AdamConfig = DEFAULT):
@@ -181,10 +193,61 @@ the type hint to enable proper configuration nesting and IDE support.
 @configurable
 def preprocessor(data): ...
 
+
 @configurable
 class Pipeline:
+  """A pipeline with a nested configurable preprocessor."""
+
   def __init__(self, prep: preprocessor.Type = DEFAULT):
     self.prep = prep
+
+
+### Overriding Nested Defaults
+
+You can override default parameters of nested configurations directly within the type annotation using the `Overrides` utility. This is particularly useful for setting different defaults for the same configurable component used in different contexts.
+
+```python
+from nonfig import Overrides
+
+
+@configurable
+class Strategy:
+  def __init__(
+    self,
+    # Sets default window to 100 specifically for the long MA
+    long_ma: Overrides[moving_average.Type, "window": 100] = DEFAULT,
+    # Sets default window to 3 specifically for the short MA
+    short_ma: Overrides[moving_average.Type, "window": 3] = DEFAULT,
+  ):
+    self.long_ma = long_ma
+    self.short_ma = short_ma
+
+
+You can also provide a full dictionary of overrides directly:
+
+```python
+D = {"window": 100}
+
+
+@configurable
+class Strategy:
+  # Injects the entire dictionary D as overrides for the moving average component
+  long_ma: Overrides[moving_average.Type, D] = DEFAULT
+```
+
+`Overrides` also supports multiple arguments, merging dictionaries, slice syntax, and even nested dictionaries to reach deeper into the configuration tree:
+
+```python
+@configurable
+class ComplexStrategy:
+  def __init__(
+    self,
+    # Merges dictionary, slice syntax, and nested dictionary
+    ma: Overrides[
+      nested_ma.Type, {"other": 10}, "window":50, "sub_component" : {"param": 1.0}
+    ] = DEFAULT,
+  ):
+    self.ma = ma
 ```
 
 ### Leaf Markers
@@ -195,6 +258,7 @@ transforming it into a nested configuration.
 
 ```python
 from nonfig import Leaf
+
 
 @configurable
 class Processor:
@@ -251,6 +315,7 @@ Support for JSON, TOML, and YAML (requires `pyyaml`):
 
 ```python
 from nonfig import load_yaml
+
 config_data = load_yaml("config.yaml")
 config = Model.Config(**config_data)
 ```
