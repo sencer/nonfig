@@ -206,6 +206,8 @@ class Pipeline:
 
 You can override default parameters of nested configurations directly within the type annotation using the `Overrides` utility. This is particularly useful for setting different defaults for the same configurable component used in different contexts.
 
+**Validation:** Since `nonfig` uses `extra="forbid"`, all overrides (including those in constant dictionaries) are strictly validated against the target's signature. Misspelled keys will raise a `ValidationError` at decoration time.
+
 ```python
 from nonfig import Overrides
 
@@ -275,7 +277,8 @@ class Processor:
   dependency that I (the user) will provide as a pre-instantiated object."
 
 You should **not** use `Leaf[T] = DEFAULT`. They represent opposite intents: `Leaf`
-blocks the configuration transformation that `DEFAULT` specifically requests.
+blocks the configuration transformation that `DEFAULT` specifically requests. This
+is now enforced at runtime with a `TypeError`.
 
 ### JAX, Flax & jaxtyping
 

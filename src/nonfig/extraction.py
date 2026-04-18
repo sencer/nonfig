@@ -513,6 +513,13 @@ def create_field_info(  # noqa: PLR0913
     return (transformed_type, Field(..., **constraint_kwargs))
 
   if isinstance(default_value, DefaultSentinel):
+    if is_leaf:
+      type_name = getattr(field_type, "__name__", str(field_type))
+      raise TypeError(
+        f"Parameter '{param_name}' is marked as Leaf[{type_name}] and cannot use DEFAULT. "
+        + "Leaf parameters require a concrete instance or a default value."
+      )
+
     # DEFAULT sentinel - instantiate the type's Config if available
     config_cls = _get_config_class(field_type)
     if config_cls is not None:
@@ -554,7 +561,8 @@ def create_field_info(  # noqa: PLR0913
   if isinstance(default_value, MakeableModel):
     return (transformed_type, Field(default=default_value, **constraint_kwargs))
 
-  config_cls = _get_config_class(default_value)
+  # If is_leaf is True, we use the default_value as-is and skip magic config instantiation
+  config_cls = None if is_leaf else _get_config_class(default_value)
 
   if config_cls is not None:
     default_config = _instantiate_default_config(config_cls, param_name)

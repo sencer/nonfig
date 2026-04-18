@@ -7,7 +7,7 @@ from typing import ClassVar, cast
 import pandas as pd
 import pytest
 
-from nonfig import DEFAULT, Ge, Gt, Hyper, MakeableModel, configurable
+from nonfig import DEFAULT, Ge, Gt, Hyper, Leaf, MakeableModel, configurable
 
 """Consolidated nesting tests."""
 
@@ -315,16 +315,6 @@ def test_dict_assignment_list():
   assert model.items[1].x == 2
   assert model.items[2].x == 3
   assert model.items[2].y == 33
-
-
-def test_dict_assignment_extra_keys_ignored():
-  """Test that extra keys in dict are ignored (Pydantic default behavior)."""
-  cfg = OuterConfig.Config(inner={"x": 1, "unknown_key": 999})  # type: ignore
-  model = cfg.make()
-
-  # Validation should pass and ignore unknown_key
-  assert model.inner.x == 1
-  assert not hasattr(model.inner, "unknown_key")
 
 
 """Test nested configs with mixed configurables (dataclass, class, function)."""
@@ -851,9 +841,10 @@ class Strategy:
 
 
 @configurable
+@dataclass
 class Context:
-  # Default value is the CLASS itself
-  strategy_cls: type[Strategy] = Strategy
+  # Default value is the CLASS itself, marked as Leaf to avoid auto-config
+  strategy_cls: Leaf[type[Strategy]] = Strategy
 
 
 def test_class_as_default_value() -> None:

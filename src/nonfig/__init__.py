@@ -5,7 +5,7 @@ Key exports: ``configurable``, ``wrap_external``, ``Hyper``, ``Leaf``,
 (``load_json``, ``load_yaml``, ``load_toml``), and ``run_cli``.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 from nonfig.cli.runner import run_cli
 from nonfig.constraints import Ge, Gt, Le, Lt, MaxLen, MinLen, MultipleOf, Pattern

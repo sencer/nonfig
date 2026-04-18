@@ -90,7 +90,7 @@ class MakeableModel[R](BaseModel):
   model_config = ConfigDict(
     arbitrary_types_allowed=True,
     validate_assignment=False,
-    extra="ignore",
+    extra="forbid",
     frozen=True,
   )
 

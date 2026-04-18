@@ -166,7 +166,7 @@ class TestFunctionTyping:
   def test_config_returns_makeable_model(self) -> None:
     # Note: For functions, ParamSpec means Config appears to accept all params.
     # This is a known trade-off - stubs fix it.
-    config = process.Config(data=[], window=20)
+    config = process.Config(window=20)
     assert_type(config, MakeableModel[float])
 
   def test_direct_call(self) -> None:
