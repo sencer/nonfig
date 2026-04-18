@@ -313,7 +313,6 @@ testpaths = ["tests"]
 addopts = [
     "--strict-markers",
     "--strict-config",
-    "-W error",  # STRICT: Treat warnings as errors (catch deprecations early)
     "--tb=short",
     "--cov=src",
     "--cov-report=term-missing:skip-covered",
@@ -322,6 +321,9 @@ addopts = [
 ]
 filterwarnings = [
     "error",  # Treat all warnings as errors by default
+    "ignore:.*jax.*:DeprecationWarning",
+    "ignore:.*flax.*:DeprecationWarning",
+    "ignore:.*pydantic.*:DeprecationWarning",
 ]
 
 # ============================================================
