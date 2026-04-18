@@ -336,8 +336,8 @@ def _is_likely_type_ref(s: str, configurable_names: set[str] | None = None) -> b
 
 
 def _transform_ast_node(
-  node: ast.AST, aliases: set[str], configurable_names: set[str] | None = None
-) -> ast.AST:
+  node: ast.expr, aliases: set[str], configurable_names: set[str] | None = None
+) -> ast.expr:
   """Recursively transform an AST type node."""
   # Handle A | B (Python 3.10+ unions)
   if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
@@ -354,15 +354,13 @@ def _transform_ast_node(
       new_elts = [
         _transform_ast_node(elt, aliases, configurable_names) for elt in node.slice.elts
       ]
-      new_slice: ast.AST = ast.Tuple(
-        elts=cast("list[ast.expr]", new_elts), ctx=ast.Load()
-      )
+      new_slice: ast.expr = ast.Tuple(elts=new_elts, ctx=ast.Load())
     else:
       new_slice = _transform_ast_node(node.slice, aliases, configurable_names)
 
     return ast.Subscript(
       value=node.value,
-      slice=new_slice,  # pyright: ignore[reportArgumentType]
+      slice=new_slice,
       ctx=ast.Load(),
     )
 
@@ -371,31 +369,22 @@ def _transform_ast_node(
     return ast.Dict(
       keys=[
         _transform_ast_node(k, aliases, configurable_names) if k else None
-        for k in node.keys  # pyright: ignore
+        for k in node.keys
       ],
-      values=[
-        _transform_ast_node(v, aliases, configurable_names)
-        for v in node.values  # pyright: ignore
-      ],
+      values=[_transform_ast_node(v, aliases, configurable_names) for v in node.values],
     )
 
   # Handle List literals
   if isinstance(node, ast.List):
     return ast.List(
-      elts=[
-        _transform_ast_node(e, aliases, configurable_names)
-        for e in node.elts  # pyright: ignore
-      ],
+      elts=[_transform_ast_node(e, aliases, configurable_names) for e in node.elts],
       ctx=node.ctx,
     )
 
   # Handle Tuple literals
   if isinstance(node, ast.Tuple):
     return ast.Tuple(
-      elts=[
-        _transform_ast_node(e, aliases, configurable_names)
-        for e in node.elts  # pyright: ignore
-      ],
+      elts=[_transform_ast_node(e, aliases, configurable_names) for e in node.elts],
       ctx=node.ctx,
     )
 
